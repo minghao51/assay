@@ -95,11 +95,12 @@ const ACCEPTED_TYPES: readonly string[] = [
   'BYTEA',
   'DATE',
   'TIME',
-  'TIME(3)',
   'TIME WITH TIME ZONE',
   'TIME WITHOUT TIME ZONE',
   'TIMESTAMP',
+  'TIMESTAMP(0)',
   'TIMESTAMP(3)',
+  'TIMESTAMP(9)',
   'TIMESTAMP WITH TIME ZONE',
   'TIMESTAMP WITHOUT TIME ZONE',
   'TIMESTAMPTZ',
@@ -247,6 +248,12 @@ const REJECTED_TYPES: readonly string[] = [
   'INTEGER(2)',
   'DOUBLE(2)',
   'TIMESTAMP(3,4)',
+  // The engine's per-type tighter bounds (R-12): `TIMESTAMP` accepts a
+  // precision only in 0..9, and `TIME` takes no type parameter at all.
+  'TIMESTAMP(10)',
+  'TIMESTAMP(2147483647)',
+  'TIME(0)',
+  'TIME(3)',
   'TIMESTAMPTZ(3)',
   'FOO(1)',
 ]
@@ -264,6 +271,33 @@ describe('parseEngineTypeExpression — modifier bounds (defect 1)', () => {
     // A negative modifier is unreachable through the grammar: the lexer has no
     // sign and rejects `-` as a disallowed character.
     expect(() => parseEngineTypeExpression('VARCHAR(-1)')).toThrow(/disallowed character/)
+  })
+
+  it('bounds TIMESTAMP precision to the engine 0..9 and refuses any TIME parameter', () => {
+    // The pinned DuckDB 1.5.5 binder refuses `TIMESTAMP(10)` ("TIMESTAMP only
+    // supports until nano-second precision (9)"), so both ends of the real
+    // range stay accepted and anything above 9 is refused before SQL.
+    for (const type of ['TIMESTAMP(0)', 'TIMESTAMP(9)']) {
+      expect(() => parseEngineTypeExpression(type), type).not.toThrow()
+    }
+    for (const type of ['TIMESTAMP(10)', 'TIMESTAMP(2147483647)']) {
+      expect(() => parseEngineTypeExpression(type), type).toThrow(
+        /TIMESTAMP precision must be between 0 and 9/,
+      )
+    }
+    // Closed arity is unchanged: one precision, never two.
+    expect(() => parseEngineTypeExpression('TIMESTAMP(3,4)')).toThrow(
+      /TIMESTAMP takes only one integer precision/,
+    )
+    // `TIME` takes no type parameter at all (binder: "Type 'TIME' does not
+    // take any type parameters"), while bare TIME and the WITH/WITHOUT
+    // suffixes keep their existing rules.
+    for (const type of ['TIME(0)', 'TIME(3)']) {
+      expect(() => parseEngineTypeExpression(type), type).toThrow(
+        /TIME does not accept type parameters/,
+      )
+    }
+    expect(() => parseEngineTypeExpression('TIME WITH TIME ZONE')).not.toThrow()
   })
 })
 
@@ -492,6 +526,37 @@ describe.skipIf(!hasDuckDbCli)('type-expression agreement with the pinned DuckDB
     expect(() => parseEngineTypeExpression('VARCHAR(999999999999)')).toThrow(
       /between 0 and 2147483647/,
     )
+  })
+
+  it("TIMESTAMP precision 0..9 and TIME's no-parameter rule agree with the binder (R-12)", () => {
+    // The engine owns these tighter per-type bounds; the validator now encodes
+    // exactly what the pinned binder does, so neither spelling is composed.
+    expect(cliFailure("SELECT TIMESTAMP '2020-01-01 00:00:00'::TIMESTAMP(10)")).toMatch(
+      /Binder Error/,
+    )
+    expect(cliFailure("SELECT TIMESTAMP '2020-01-01 00:00:00'::TIMESTAMP(10)")).toMatch(
+      /nano-second precision \(9\)/,
+    )
+    expect(cliFailure("SELECT '12:00:00'::TIME(3)")).toMatch(/Binder Error/)
+    expect(cliFailure("SELECT '12:00:00'::TIME(3)")).toMatch(
+      /Type 'TIME' does not take any type parameters/,
+    )
+    // Both accepted ends really bind at the engine, so the validator is not
+    // over-restrictive: bare TIME and TIMESTAMP(0..9).
+    expect(cli("SELECT '12:00:00'::TIME").trim()).toBe('12:00:00')
+    expect(cli("SELECT TIMESTAMP '2020-01-01 00:00:00'::TIMESTAMP(9)").trim()).toBe(
+      '2020-01-01 00:00:00',
+    )
+    expect(cli("SELECT TIMESTAMP '2020-01-01 00:00:00'::TIMESTAMP(0)").trim()).toBe(
+      '2020-01-01 00:00:00',
+    )
+    // Post-fix the rejected spellings never compose: validation throws first.
+    for (const type of ['TIMESTAMP(10)', 'TIME(0)', 'TIME(3)']) {
+      expect(() => parseEngineTypeExpression(type), type).toThrow(EngineTypeError)
+    }
+    for (const type of ['TIMESTAMP(0)', 'TIMESTAMP(9)', 'TIME']) {
+      expect(() => parseEngineTypeExpression(type), type).not.toThrow()
+    }
   })
 
   it('VARBIT and BIT VARYING do not exist in the engine; BIT and CHARACTER VARYING do', () => {

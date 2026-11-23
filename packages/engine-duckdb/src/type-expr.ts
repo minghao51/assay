@@ -59,18 +59,26 @@
  *   `p[,s]` arity, so the two spellings that *are* emitted (`DECIMAL` and
  *   `DECIMAL(p,s)`) both stay accepted.)
  * - `VARCHAR`/`CHAR`/`CHARACTER`/`BPCHAR`/`BIT`/`TEXT`/`STRING`/
- *   `NVARCHAR`/`FLOAT` and `TIME`/`TIMESTAMP`: bare, or exactly one integer
- *   modifier (`VARCHAR(10)`, `TIMESTAMP(3)`). `VARCHAR()`, `CHAR()`,
- *   `BIT()` and `TIMESTAMP(3,4)` are rejected. (`BPCHAR()` is accepted by the
- *   1.5.5 CLI but rejected here for the same closed-arity reason as
- *   `DECIMAL()`; the engine emits only the bare spelling.) The modifier value
- *   must be an integer literal the engine can **express**: `0..2147483647`.
- *   The 1.5.5 parser reads a type modifier as a signed 32-bit literal, so
- *   `VARCHAR(999999999999)` is a Parser Error, not a binder error — bounding
- *   the value here keeps that failure at validation instead of SQL
- *   composition. Negative values are unreachable through the grammar (the
- *   lexer rejects `-`). `CHARACTER VARYING` takes the modifier after
- *   `VARYING`.
+ *   `NVARCHAR`/`FLOAT`: bare, or exactly one integer modifier
+ *   (`VARCHAR(10)`). `VARCHAR()`, `CHAR()` and `BIT()` are rejected.
+ *   (`BPCHAR()` is accepted by the 1.5.5 CLI but rejected here for the same
+ *   closed-arity reason as `DECIMAL()`; the engine emits only the bare
+ *   spelling.) The modifier value must be an integer literal the engine can
+ *   **express**: `0..2147483647`. The 1.5.5 parser reads a type modifier as a
+ *   signed 32-bit literal, so `VARCHAR(999999999999)` is a Parser Error, not a
+ *   binder error — bounding the value here keeps that failure at validation
+ *   instead of SQL composition. Negative values are unreachable through the
+ *   grammar (the lexer rejects `-`). `CHARACTER VARYING` takes the modifier
+ *   after `VARYING`.
+ * - `TIMESTAMP`: bare, or exactly one integer **precision in `0..9`**
+ *   (`TIMESTAMP(9)`). The 1.5.5 binder refuses `TIMESTAMP(10)`
+ *   ("TIMESTAMP only supports until nano-second precision (9)"), so the
+ *   tighter per-type bound is encoded here; `TIMESTAMP(3,4)` is rejected for
+ *   the same closed-arity reason as `VARCHAR(10,2)`.
+ * - `TIME`: bare only, because the engine takes **no** type parameter at all —
+ *   `TIME(3)` is a Binder Error ("Type 'TIME' does not take any type
+ *   parameters"). The `WITH TIME ZONE` / `WITHOUT TIME ZONE` suffixes are
+ *   unchanged.
  * - `LIST`: exactly one **type** argument (`LIST(INTEGER)`); `LIST`,
  *   `LIST()` and `LIST(INTEGER, VARCHAR)` are rejected.
  * - `MAP`: exactly two **type** arguments (`MAP(VARCHAR, INTEGER)`);
@@ -184,13 +192,29 @@ const MULTI_WORD_CONTINUATIONS: ReadonlySet<string> = new Set([
  * "999999999999"`), while `VARCHAR(0)` and `VARCHAR(2147483647)` are accepted.
  * The validator refuses anything outside `0..MAX_TYPE_MODIFIER`, so an
  * inexpressible modifier fails at validation, never late at the engine.
- *
- * Carried limitation (deliberately **not** encoded here): individual types
- * have tighter real bounds this validator still does not model — e.g.
- * `TIMESTAMP(n)` accepts only `n` in `0..9` at the engine, so
- * `TIMESTAMP(10)` passes validation and is rejected by the binder.
  */
 const MAX_TYPE_MODIFIER = 2_147_483_647
+
+/**
+ * The largest `TIMESTAMP` precision the pinned engine accepts: DuckDB 1.5.5
+ * rejects `TIMESTAMP(10)` with a Binder Error ("TIMESTAMP only supports until
+ * nano-second precision (9)") while `TIMESTAMP(0)` … `TIMESTAMP(9)` bind. `TIME`
+ * is deliberately absent from the optional-modifier bases above: the engine
+ * takes no type parameter at all (`TIME(3)` → "Type 'TIME' does not take any
+ * type parameters"). Those two rules are encoded per type; every other
+ * modifier type keeps the general `0..MAX_TYPE_MODIFIER` bound.
+ *
+ * What stays unmodelled after those two rules: the engine's type catalog
+ * itself (a well-shaped identifier that names no type is accepted here and
+ * refused by the binder — `INTEGR` → "Type with name INTEGR does not exist"),
+ * the fixed-size array extent upper bound (`INTEGER[100001]` passes validation
+ * and the 1.5.5 binder refuses it, "ARRAY type size must be at most 100000"),
+ * and `FLOAT`'s 1..53-bit precision (`FLOAT(54)` is a *Parser* Error, before
+ * binding). The validator's job remains "exactly one well-shaped type
+ * expression"; the engine stays the authority on which types exist and on the
+ * bounds it enforces in its own parser or catalog.
+ */
+const MAX_TIMESTAMP_PRECISION = 9
 
 /** Types whose argument list is a single optional integer modifier. */
 const OPTIONAL_INTEGER_MODIFIER_BASES: ReadonlySet<string> = new Set([
@@ -203,8 +227,6 @@ const OPTIONAL_INTEGER_MODIFIER_BASES: ReadonlySet<string> = new Set([
   'STRING',
   'NVARCHAR',
   'FLOAT',
-  'TIME',
-  'TIMESTAMP',
 ])
 
 type Token =
@@ -550,6 +572,9 @@ class TypeExpressionParser {
           'engine type VARBIT is outside the supported materialization ' +
             '(the pinned DuckDB has no VARBIT type; use BIT or BIT(n))',
         )
+      case 'TIMESTAMP':
+        this.validateTimestampPrecision(base, args)
+        return
       default:
         if (OPTIONAL_INTEGER_MODIFIER_BASES.has(base)) {
           this.requireOptionalIntegerModifier(base, args)
@@ -580,6 +605,29 @@ class TypeExpressionParser {
     }
     if (scale.value < 0 || scale.value > precision.value) {
       throw new EngineTypeError(`${base} scale must be between 0 and the precision`)
+    }
+  }
+
+  /**
+   * `TIMESTAMP[(precision)]` — the 1.5.5 binder only accepts nanosecond-or-coarser
+   * precision, so the per-type `0..9` bound is validated here instead of
+   * letting `TIMESTAMP(10)` reach the binder (mirrors the `DECIMAL` precision
+   * shape and its typed message).
+   */
+  private validateTimestampPrecision(base: string, args: readonly ParsedArg[] | undefined): void {
+    if (args === undefined) return
+    const precision = args[0]
+    if (args.length !== 1 || precision === undefined || precision.kind !== 'number') {
+      throw new EngineTypeError(`${base} takes only one integer precision`)
+    }
+    if (
+      !Number.isInteger(precision.value) ||
+      precision.value < 0 ||
+      precision.value > MAX_TIMESTAMP_PRECISION
+    ) {
+      throw new EngineTypeError(
+        `${base} precision must be between 0 and ${String(MAX_TIMESTAMP_PRECISION)}`,
+      )
     }
   }
 

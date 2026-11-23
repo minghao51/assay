@@ -212,14 +212,19 @@ test('a structurally valid but engine-rejected cast rolls back and alerts recove
 }) => {
   await openCustomersFixture(page)
 
-  // `TIME(3)` passes the client's structural validator (one integer modifier),
-  // so it reaches the engine, whose binder rejects the spelling outright
-  // (`Type 'TIME' does not take any type parameters`). This is the failure
-  // class the m4-3 rollback+alert path must own for schema ops, and it is one
-  // of the validator's known tighter-bound gaps (b2 carried limitation:
-  // `TIMESTAMP(n)` precision 0..9 and TIME's no-parameter rule are not
-  // encoded, so the binder — not the validator — is the refusing layer).
-  await castColumnCustom(page, 'income', 'TIME(3)')
+  // The client validator proves exactly one well-shaped type expression; it is
+  // deliberately not the engine's type catalog. `INTEGER[100001]` is such a
+  // spelling: the array suffix is structurally valid (any extent `>= 1`), so it
+  // reaches the engine, whose binder refuses the extent
+  // (`Binder Error: ARRAY type size must be at most 100000`, reproduced on the
+  // pinned DuckDB CLI 1.5.5). This is the failure class the m4-3 rollback+alert
+  // path must own for schema ops — a well-shaped spelling whose bounds the
+  // engine owns, which the validator cannot pre-empt.
+  // This pin used to use `TIME(3)`, which is no longer a valid example: the
+  // validator now encodes the engine's own rule that TIME takes no type
+  // parameter ("Type 'TIME' does not take any type parameters"), so `TIME(3)`
+  // is refused client-side with `MAP(INTEGER)` in the test above.
+  await castColumnCustom(page, 'income', 'INTEGER[100001]')
 
   // rd-3b: the editing toolbar (`edit-error`, `pending-changes`) and the
   // transformation history are Change-task surfaces, so the task is activated

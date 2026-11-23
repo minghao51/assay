@@ -48,16 +48,16 @@ describe('validateCastTarget — the engine validator gates every spelling', () 
   })
 
   it('accepts a well-shaped but engine-rejected type — the engine owns the tight bounds', () => {
-    // `TIMESTAMP(10)` is structurally valid (one integer modifier on the
-    // validator's optional-modifier path) but the engine only has nanosecond
-    // precision 0..9, so it reaches the engine and is rejected at schema
-    // materialization. This is the *second* failure class: shape validity
-    // here, tighter type bounds engine-side — never silently accepted as
-    // worked. (`VARBIT` is no longer an example of this class: the engine
-    // validator now refuses it as outside the supported materialization.)
-    expect(validateCastTarget('TIMESTAMP(10)')).toEqual({
+    // `INTEGER[100001]` is structurally valid (a fixed-size array extent is any
+    // integer >= 1) but the engine caps an ARRAY size at 100000, so it reaches
+    // the engine and is rejected at schema materialization. This is the
+    // *second* failure class: shape validity here, tighter bounds engine-side —
+    // never silently accepted as worked. (`TIMESTAMP(10)` is no longer an
+    // example of this class: the validator now encodes the engine's own 0..9
+    // precision bound, so it is refused in the first class.)
+    expect(validateCastTarget('INTEGER[100001]')).toEqual({
       ok: true,
-      targetType: 'TIMESTAMP(10)',
+      targetType: 'INTEGER[100001]',
     })
   })
 })

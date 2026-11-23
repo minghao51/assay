@@ -22,14 +22,14 @@
  *    an op is composed. A structurally invalid spelling is refused here with
  *    a readable message and no op appended. This is deliberately *not* a
  *    type-catalog check: the validator proves "exactly one well-shaped type
- *    expression", so a well-shaped spelling whose bounds the engine owns
- *    (e.g. `TIMESTAMP(10)`, which the 1.5.5 binder rejects above precision
- *    9, or a typo like `INTEGR`) still reaches the engine — where it fails
- *    at schema materialization and is honest-surfaced through the commit
- *    rollback+alert path (see `session.ts`). Two failure classes, two
- *    honest surfaces. (Spellings outside the supported materialization,
- *    such as `VARBIT`/`BIT VARYING`, are refused by the engine validator
- *    itself and therefore stay in the *first* class.)
+ *    expression", so a well-shaped spelling the engine still refuses (e.g.
+ *    `INTEGER[100001]`, whose extent the 1.5.5 binder caps at 100000, or a
+ *    typo like `INTEGR`) reaches the engine — where it fails at schema
+ *    materialization and is honest-surfaced through the commit rollback+alert
+ *    path (see `session.ts`). Two failure classes, two honest surfaces.
+ *    (Spellings outside the supported materialization, such as
+ *    `VARBIT`/`BIT VARYING`, are refused by the engine validator itself and
+ *    therefore stay in the *first* class.)
  *
  * Purity: engine validation only (no React/DOM) — Node-tested. The returned
  * `targetType` is the trimmed original; it is never rebuilt from parsed
