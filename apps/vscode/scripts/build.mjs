@@ -115,6 +115,26 @@ const browserBuild = {
   logLevel: 'warning',
 }
 
+/**
+ * R-10: the test-only webview entry must NOT contain a second copy of the
+ * production app. `webview/test-proof/entry.ts` imports `../dataset` (the real
+ * module, so `pnpm typecheck` still checks the seam), but the emitted
+ * `dist/webview/dataset-proof.js` keeps that one specifier as an EXTERNAL
+ * runtime import of the sibling `./dataset.js` — i.e. the browser loads the
+ * production bundle once, and the test-only bundle adds only the D03b proofs.
+ * Without this, the proof entry would inline the whole app and the packaged
+ * payload would grow by ~1 MB for a test-only artifact.
+ */
+const externalProductionDataset = {
+  name: 'assay-external-production-dataset',
+  setup(buildApi) {
+    buildApi.onResolve({ filter: /^\.\.\/dataset$/ }, () => ({
+      path: './dataset.js',
+      external: true,
+    }))
+  },
+}
+
 async function main() {
   await rm(dist, { recursive: true, force: true })
   await mkdir(webviewDist, { recursive: true })
@@ -148,6 +168,20 @@ async function main() {
     ...browserBuild,
     entryPoints: [path.join(appRoot, 'webview/dataset.ts')],
     outfile: path.join(webviewDist, 'dataset.js'),
+  })
+
+  // R-10: the TEST-ONLY dataset webview entry. It composes the D03b proofs with
+  // the same production app and is loaded by the pinned test host ONLY
+  // (`src/dataset.ts` `buildDatasetConfig` selects it under the test
+  // predicate). The production entry above has no import edge to
+  // `webview/test-proof/**`, so esbuild drops all six proof modules from
+  // `dist/webview/dataset.js`; this bundle is the only output that carries
+  // them, and it imports the production bundle instead of duplicating it.
+  await build({
+    ...browserBuild,
+    entryPoints: [path.join(appRoot, 'webview/test-proof/entry.ts')],
+    outfile: path.join(webviewDist, 'dataset-proof.js'),
+    plugins: [externalProductionDataset],
   })
 
   await build({

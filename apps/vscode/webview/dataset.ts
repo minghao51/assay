@@ -21,9 +21,9 @@
  * `webview/diff-panel.ts` (staging, confirmed diff, report, report export),
  * `webview/dirty-history.ts` (grid editing state, dirty-cell predicate, edit
  * status). Their DOM-free decisions live in `src/pure/*-presenter.ts` and are
- * unit-tested in Node. Test-proof orchestration lives behind the
- * `config.testHarness` gate in `webview/test-proof/` (see that module's doc:
- * excluding it from the production bundle is a separate measured choice).
+ * unit-tested in Node. Test-proof orchestration lives in `webview/test-proof/`
+ * and is never reached from here (R-10): it arrives as an INJECTED runner, from
+ * the test-only entry the pinned test host loads instead of this one.
  *
  * Typed host errors are rendered as text; every DOM update is
  * `textContent`/`hidden`/`setAttribute` (no `innerHTML` anywhere,
@@ -50,7 +50,6 @@ import { elementOrThrow } from './dom'
 import { ValidationPanel } from './validation-panel'
 import { DiffPanel } from './diff-panel'
 import { DirtyHistoryView } from './dirty-history'
-import { runOpenProofs } from './test-proof'
 
 /** Mirror of the host-side config in `src/dataset.ts` (buildDatasetConfig). */
 interface DatasetWebviewConfig {
@@ -71,6 +70,7 @@ interface DatasetWebviewConfig {
   }[]
   readonly duckdbVersion: string
   readonly blockedExtensionHost: string
+  /** Host-computed test predicate (see `installOpenProofs`). */
   readonly testHarness: boolean
 }
 
@@ -274,6 +274,63 @@ function renderReport(rows: number, columns: number): void {
 }
 
 /**
+ * The D03b proof inputs this entry hands the INJECTED runner (R-10). The shape
+ * is declared here rather than imported from `webview/test-proof/`: a
+ * `import type` is erased, but the production entry must not name the proof
+ * modules in any form, so this is the single seam. The test-only entry
+ * (`webview/test-proof/entry.ts`) assigns `runOpenProofs` to
+ * {@link OpenProofsRunner}, which makes a drift between the two declarations a
+ * `pnpm typecheck` failure instead of a silent runtime mismatch.
+ */
+export interface OpenProofsInput {
+  /** Gate flag copied from the injected webview config (layer 3 of the gate). */
+  readonly testHarness: boolean
+  readonly rows: number
+  readonly columns: number
+  readonly schema: readonly { readonly name: string; readonly type: string }[]
+  readonly commandOpened: boolean
+  readonly grid: WebviewDataGrid
+  readonly model: GridViewportModel
+  readonly provider: EngineGridProvider
+  readonly controller: EditController
+  readonly base: OverlayBase
+  readonly validation: ValidationPanel
+  readonly diff: DiffPanel
+  readonly exportEffectiveCopy: () => Promise<void>
+  readonly setStage: (stage: string) => void
+}
+
+/** The injected proof runner (the test-only entry's adapted `runOpenProofs`). */
+export type OpenProofsRunner = (input: OpenProofsInput) => Promise<Record<string, unknown>>
+
+/**
+ * The installed proof runner — `undefined` in production, ALWAYS. No import in
+ * this module's graph can install it: {@link installOpenProofs} is called only
+ * by `webview/test-proof/entry.ts`, which esbuild emits as the separate
+ * test-only `dist/webview/dataset-proof.js`. Because this entry has no edge to
+ * `webview/test-proof/**`, dead-code elimination drops all six proof modules
+ * from the production bundle (R-10) — the gate is structural, not a build
+ * convention.
+ */
+let openProofsRunner: OpenProofsRunner | undefined
+
+/**
+ * Install the test-only proof runner. Only the test-only webview entry calls
+ * this; the runtime gate is unchanged — the host still computes `testHarness`
+ * as `ExtensionMode.Test && ASSAY_E2E_EDIT_PROOF === '1'`
+ * (`apps/vscode/src/dataset.ts`), this entry still passes that flag through,
+ * and the runner still refuses unless it is exactly `true`
+ * (`webview/test-proof/index.ts`).
+ *
+ * Ordering: the runner is read only when the host's `dataset` frame arrives,
+ * which is a later macrotask than module evaluation, so an install performed
+ * while the test entry's module graph evaluates is always in place first.
+ */
+export function installOpenProofs(runner: OpenProofsRunner): void {
+  openProofsRunner = runner
+}
+
+/**
  * Open the posted bytes through the real adapter and mount the grid. The
  * bridge's `name` is the host's format-derived neutral name (never the
  * user's file name — it exists only so the engine's format detection and
@@ -413,22 +470,25 @@ async function openDataset(name: string, bytes: ArrayBuffer): Promise<void> {
 
   const exportEffectiveCopy = (): Promise<void> =>
     startExport('parquet', boot.client, handle, base, controller)
-  const proofs = await runOpenProofs({
-    testHarness: config.testHarness,
-    rows,
-    columns,
-    schema: baseSchema,
-    commandOpened: commandOpenedDataset,
-    grid,
-    model,
-    provider,
-    controller,
-    base,
-    validation: validationPanel,
-    diff: diffPanel,
-    exportEffectiveCopy,
-    setStage,
-  })
+  const proofs =
+    openProofsRunner === undefined
+      ? {}
+      : await openProofsRunner({
+          testHarness: config.testHarness,
+          rows,
+          columns,
+          schema: baseSchema,
+          commandOpened: commandOpenedDataset,
+          grid,
+          model,
+          provider,
+          controller,
+          base,
+          validation: validationPanel,
+          diff: diffPanel,
+          exportEffectiveCopy,
+          setStage,
+        })
   if (config.testHarness) await exportEffectiveCopy()
   elementOrThrow('export-controls').hidden = false
   elementOrThrow('export-button').addEventListener('click', () => {
