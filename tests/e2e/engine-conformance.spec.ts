@@ -54,6 +54,7 @@ const BUTTON_LABELS: Record<ConformanceScenarioName, string> = {
   'overlay-hostile-types-rejected': 'Conformance: overlay hostile types rejected',
   'validation-plan-execution': 'Conformance: validation plan execution',
   'row-diff-plan-execution': 'Conformance: row-diff plan execution',
+  'profile-comparison': 'Conformance: profile comparison',
 }
 
 // Setup precondition (loud, never silent): every exported scenario needs an
@@ -253,6 +254,15 @@ for (const name of SCENARIOS) {
         expect(result.facts['preExistingViewSurvived']).toBe(true)
         expect(result.facts['stagingFailuresRejected']).toBe(true)
         expect(result.facts['engineReusable']).toBe(true)
+        break
+      case 'profile-comparison':
+        // B3: the staged comparison's profile equals the same dataset's
+        // profile() statistic for statistic, the superseded ids are refused,
+        // and the table registry is unchanged across every staging attempt.
+        expect(result.facts['rowCount']).toBe(5)
+        expect(result.facts['profilesEqual']).toBe(true)
+        expect(result.facts['registryBefore']).toBe(result.facts['registryAfter'])
+        expect(result.facts['supersededRefused']).toBe(2)
         break
       default:
         break
