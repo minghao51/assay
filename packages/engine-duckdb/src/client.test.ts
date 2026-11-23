@@ -2815,7 +2815,7 @@ describe('DuckDbEngineClient cancel (R-9/ADR 0052)', () => {
     expect(result.batch.numCols).toBe(0)
   })
 
-  it("passes a false cancelSent through without claiming a stop (and leaves the parked op alone)", async () => {
+  it('passes a false cancelSent through without claiming a stop (and leaves the parked op alone)', async () => {
     const { client, worker } = await booted()
     const parked = client.query('SELECT 1 AS value')
     await flush()

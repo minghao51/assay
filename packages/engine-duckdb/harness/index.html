@@ -223,8 +223,8 @@
         <h2>Query cancel (R-9/ADR 0052)</h2>
         <p>
           Runs the long statement to completion once (the magnitude reference), then parks the same
-          statement, cancels it out of band, records the engine's <code>cancelSent</code> boolean and
-          how the parked op settled, and times the very next query — the follow-up must start
+          statement, cancels it out of band, records the engine's <code>cancelSent</code> boolean
+          and how the parked op settled, and times the very next query — the follow-up must start
           promptly instead of queueing behind the abandoned query. Privacy (ADR 0001/0025): timings,
           booleans and one engine-produced scalar only.
         </p>
@@ -271,9 +271,7 @@
           <button id="conformance-mid-stream-error-reuse" type="button">
             Conformance: mid-stream error reuse
           </button>
-          <button id="conformance-query-cancel" type="button">
-            Conformance: query cancel
-          </button>
+          <button id="conformance-query-cancel" type="button">Conformance: query cancel</button>
           <button id="conformance-window-filter-sort" type="button">
             Conformance: window filter sort
           </button>

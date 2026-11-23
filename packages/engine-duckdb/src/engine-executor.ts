@@ -263,8 +263,10 @@ export class EngineOpExecutor {
    * of the ADR's scope. It is state of the lane, not of a connection: the
    * cancel itself never takes a slot (that is the whole point).
    */
-  private queryLaneInFlight: { readonly requestId: number; readonly type: EngineRequestType } | null =
-    null
+  private queryLaneInFlight: {
+    readonly requestId: number
+    readonly type: EngineRequestType
+  } | null = null
 
   constructor(private readonly deps: EngineExecutorDeps) {}
 

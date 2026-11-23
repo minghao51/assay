@@ -900,9 +900,7 @@ describe('R-9/ADR 0052: engine/cancel-query protocol', () => {
 
     it('is a recognised request type (a malformed cancel is answered, never dropped)', () => {
       expect(ENGINE_REQUEST_TYPES).toContain('engine/cancel-query')
-      expect(
-        parseEngineRequestEnvelope({ type: 'engine/cancel-query', requestId: 4 }),
-      ).toEqual({
+      expect(parseEngineRequestEnvelope({ type: 'engine/cancel-query', requestId: 4 })).toEqual({
         status: 'malformed',
         malformed: {
           requestId: 4,
@@ -919,7 +917,11 @@ describe('R-9/ADR 0052: engine/cancel-query protocol', () => {
         parseEngineResponse({ type: 'engine/cancel-query-result', requestId: 5, cancelSent: true }),
       ).toEqual({ type: 'engine/cancel-query-result', requestId: 5, cancelSent: true })
       expect(
-        parseEngineResponse({ type: 'engine/cancel-query-result', requestId: 6, cancelSent: false }),
+        parseEngineResponse({
+          type: 'engine/cancel-query-result',
+          requestId: 6,
+          cancelSent: false,
+        }),
       ).toEqual({ type: 'engine/cancel-query-result', requestId: 6, cancelSent: false })
     })
 

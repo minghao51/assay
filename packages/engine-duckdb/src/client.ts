@@ -491,7 +491,8 @@ export class DuckDbEngineClient {
    */
   async cancelQuery(queryRequestId?: number): Promise<EngineCancelResult> {
     await this.ensureReady()
-    const target = queryRequestId ?? this.activeQueryRequestIds[this.activeQueryRequestIds.length - 1]
+    const target =
+      queryRequestId ?? this.activeQueryRequestIds[this.activeQueryRequestIds.length - 1]
     if (target === undefined) return { cancelSent: false }
     const response = await this.send({
       type: 'engine/cancel-query',
