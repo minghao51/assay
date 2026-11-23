@@ -428,6 +428,24 @@ is set by it**: the two passes differ by named feature work (+10,279 B raw web, 
 +39,301 B desktop), and the CLI tarball / install-size rows remain non-reproducible until they are
 re-normalised as that record states.
 
+**Third data point (2026-11-23) — two consecutive stable rounds, candidates proposed.** The
+[20261123 record](../process/handoff/20261123-e02-third-baseline.md) rebuilds every source-touching
+commit between its predecessor and its base, so all movement is attributed by bisect rather than by
+path (`d457eec` +5,092 B web / +17,633 B desktop, `4de7233` −9,676 B web, `6e7a6d2` 0, thirteen
+non-source commits 0). It meets all four §2.5 conditions, states the tolerance for the two
+non-portable rows (install size: ≤ 12/31 names, ≤ 357 B each, net ≤ ±1.4 kB, caused by
+install-root-relative `node_modules/.bin` shims; CLI tarball: exact when both sides are re-packed —
+three packs, one sha256), and therefore proposes **candidates only**: `static-entry` ≤ 1,034,900 B,
+`lazy-chunk` ≤ 75,400 B, `host-bundle` ≤ 60,100 B, `webview-script` ≤ 3,235,200 B, CLI `files`
+payload ≤ 510,200 B raw, each set from the three rounds' high-water mark plus the largest observed
+single-round movement. **None is adopted and none is wired into a script, test or gate**; wasm/worker
+bytes remain pin-drift rows. Three limits are recorded with them: `packages/engine-duckdb/dist` grew
+19,149 B in this range and is **not** in any measured payload (the package is private); a determinism
+verdict here is a **raw-bytes** verdict, because rebuilding can flip the brotli size of the timestamped
+`spike-artifacts.json` by 1 B (four builds of one commit gave two whole-file hashes, differing in no
+raw figure); and compressed figures are quoted but never used for a ceiling (a 1–2.3 kB gzip
+inconsistency in the second data point's absolute column is corrected in the third record).
+
 ## 13. Reproduce, and how it fails safely
 
 ```bash

@@ -394,3 +394,49 @@ job-start `failure`s in ~4 s with no steps — the billing refusal, not code sig
 and this follow-up were verified locally; do not retry to "fix" the red runs. The
 [2026-11-22 handoff batch](20261122-remaining-work-handoffs.md) pushed `9eb790f` and produced run
 `45093415863` with the same four no-step failures.
+
+## 10. Dated successor — R-11 (E02 bundle budgets), 2026-11-23
+
+**Base:** `main` at `3a86ac2`, clean tree, lockfile-identical range. **Scope:** one item (R-11) from the
+[2026-11-22 remaining-work handoffs](20261122-remaining-work-handoffs.md), measurement-only — no code,
+no config, no bucket definition, no script.
+
+| Row                  | Outcome      | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| -------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **R-11 E02 budgets** | **MEASURED** | [2026-11-23 record](20261123-e02-third-baseline.md). Third baseline at `3a86ac2`; repeated runs on a fixed tree are byte-identical (sole bundle targets equal across an independent worktree, differing only in the install-size row), and a rebuild is identical in every raw figure — its only variance is a 1 B brotli flip on the timestamped `spike-artifacts.json`, which the review found by rebuilding (`9e7863…` vs `2f45e1ef…`). Every source-touching commit `129e3ef..3a86ac2` was built and measured: `7f044d7` +1,930 web (reproducing the earlier record's live-checkout control to the byte), `f4178d6` +109, `d457eec` +5,092 web / +17,633 desktop, `4de7233` −9,676 web, `6e7a6d2` 0 (its deleted symbol was already tree-shaken — verified by reference scan), thirteen non-source commits 0. Pins 0 Δ. All four §2.5 stable-round conditions hold → **two consecutive stable rounds**. Candidates proposed, **not adopted, not wired**: `static-entry` ≤ 1,034,900 B, `lazy-chunk` ≤ 75,400 B, `host-bundle` ≤ 60,100 B, `webview-script` ≤ 3,235,200 B, CLI `files` payload ≤ 510,200 B raw. |
+
+**Carried limits recorded with the candidates:** `packages/engine-duckdb/dist` grew **+19,149 B** in
+this range and appears in **no** measured payload (the package is private) — only its bundled copies
+show, as `lazy-worker` +3,152 and the three desktop webview scripts +17,633, so a future engine row can
+add bytes no candidate bucket accounts for. Compressed figures are quoted but never budgeted. The CLI
+tarball row is valid only when **both** sides are re-packed (three packs, one sha256 ⇒ exact). Install
+size is excluded from budgeting with its root cause identified (install-root-relative
+`node_modules/.bin` shims inside dependency directories; the movers differ by exact multiples of 119 B =
+7 × the 17-character path difference).
+
+**Corrections this round made to the earlier record:** the `129e3ef` `static-entry` **gzip** absolute
+(279,557 → 281,902; the deltas stood, and `06d8e20`'s is 278,735), and R-11's own expectation that
+ENG-2 would move the **CLI payload** — it did not (0 Δ), because the CLI consumes
+`@assay/engine-duckdb/node` as a runtime specifier.
+
+**Corrections the independent review made to this round's own first draft:** an overstated determinism
+claim (unconditional build-to-build byte identity) is now scoped to raw bytes plus the ±1 B `metadata`
+brotli flip, with the reviewer's third build and its hash on file; and the "clean tree" phrasing now
+says plainly that the four documentation edits are uncommitted work in the same checkout. Both were
+fixed in the record before it closed — the verdict (two stable rounds, candidates proposable) survived
+intact, because no raw figure moved.
+
+**Gates (own run, this tree):** `pnpm build --force` 12/12 (0 cached) · `pnpm measure:bundle` exit 0 ·
+two-run and two-build `--json` `cmp` byte-identical · `scripts/measure-bundle.test.mjs` **17 passed**,
+file untouched · two mutation drills (1 byte into a panel chunk → `lazy-chunk` +1; 1 byte into a pinned
+wasm → `lazy-wasm` +1, both restored and re-measured byte-identical) · `pnpm format:check`,
+`pnpm docs:links:check`, `pnpm adr:index:check`, `pnpm current-state:check`, `pnpm assurance-map:check`
+green. No runtime code changed, so the item's own leg is the measurement itself; the full suite was
+run on the merged tree separately.
+
+**Independent review:** `openai-codex/gpt-6-luna`, read-only, rebuilt the report itself, built `7f044d7`
+in its own worktree (confirming static-entry raw 1,026,310 B at that commit), and ran the five
+documentation gates — **APPROVE, no must-fix**; its two substantive findings (the hash discrepancy and
+the gzip-absolute wording) are corrected in the record and above. It did not re-run the mutation drill
+or the install/tarball comparisons; those remain this worker's evidence. **Nothing here is a budget, a
+gate, or a release action.**
