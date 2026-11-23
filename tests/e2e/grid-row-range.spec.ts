@@ -134,9 +134,7 @@ test('WF-07: X–Y match the real viewport intersection and never the overscan t
   // Middle of the view: the scroll-driven virtualizer re-render updates the
   // label through the same main-thread pass that paints the rows.
   await scrollTo(0.5)
-  await expect
-    .poll(async () => (await measureVisibleBounds(page)).start)
-    .toBeGreaterThan(1)
+  await expect.poll(async () => (await measureVisibleBounds(page)).start).toBeGreaterThan(1)
   const middle = await assertMatches()
   expect(middle.end).toBeLessThan(middle.renderedEnd)
   expect(middle.end).toBeLessThan(1000)
