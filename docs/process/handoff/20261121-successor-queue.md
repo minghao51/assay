@@ -469,6 +469,10 @@ Each reviewer explicitly said which legs it did not run; every one of those was 
 and, where it is user-visible, re-run by the orchestrator on the merged tree — recorded as such rather
 than presented as independent.
 
-**Push record:** see the closing message — remote GitHub Actions is **billing-blocked**, so a push
-produces the four ~4-second job-start refusals with no steps. That is not code signal and was not
-retried; the local suite above is the verification authority.
+**Push record:** `3a86ac2..1b72e29` (five commits: `6998d59` R-11, `55ee2df` + `3b08933` R-12,
+`6822402` R-13, `1b72e29` this ledger). Run **`45114054410`** shows the billing block unchanged — all
+four jobs (`typecheck / lint / test / build`, `playwright e2e`, `configured telemetry disclosure
+(isolated)`, `VS Code real extension host / offline harness`) fail in **2–3 s with `steps=0`** and no
+logs, which is an account payment/spending-limit refusal, not code signal. It was **not retried**, and
+nothing was pushed to make it green; the local suite above is the verification authority (see R-20 for
+the human action that lifts it).
