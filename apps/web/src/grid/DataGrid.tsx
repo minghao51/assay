@@ -760,6 +760,79 @@ export function DataGrid({
   })
   const virtualItems = virtualizer.getVirtualItems()
   /**
+   * WF-07 (WFD-07 option A, selected 2026-11-23): the footer's visible row
+   * range. X/Y are the 1-based CURRENT-VIEW positions of the rows whose data
+   * area actually intersects the scroll viewport below the sticky header —
+   * never the virtualizer's window bounds.
+   *
+   * The difference is the whole point: `virtualItems` deliberately contains
+   * `VIRTUALIZER_OVERSCAN_ROWS` extra rows on each edge that exist only to
+   * keep scrolling ahead of paint. An overscan-only row is wholly outside the
+   * viewport (or hidden under the sticky header), so it is filtered out here
+   * and can never be named. A partly visible first/last row counts.
+   *
+   * The effect re-runs whenever the virtualizer re-renders its window — the
+   * scroll/resize events that can change the intersecting set — and measures
+   * synchronously before paint, so no intermediate frame contradicts the
+   * rows the user can see. A measure that does not change the range returns
+   * the previous state object, so it can never loop.
+   */
+  const [visibleRowRange, setVisibleRowRange] = useState<{
+    readonly start: number
+    readonly end: number
+  } | null>(null)
+  useLayoutEffect(() => {
+    const container = scrollRef.current
+    if (container === null) return
+    const clear = (): void => {
+      setVisibleRowRange((previous) => (previous === null ? previous : null))
+    }
+    if (virtualItems.length === 0) {
+      // Nothing is rendered (empty view, or before the first layout pass), so
+      // no position can be named. The label's own state table decides the copy.
+      clear()
+      return
+    }
+    const containerRect = container.getBoundingClientRect()
+    if (containerRect.height <= 0) {
+      // No layout to measure (e.g. a non-browser DOM): the range is unknown
+      // rather than invented from the virtualizer window.
+      clear()
+      return
+    }
+    const headerRect = headerRef.current?.getBoundingClientRect() ?? null
+    const visibleTop =
+      headerRect !== null && headerRect.bottom > containerRect.top
+        ? headerRect.bottom
+        : containerRect.top + headerHeight
+    let first: number | null = null
+    let last: number | null = null
+    container.querySelectorAll<HTMLElement>('[data-testid="grid-row"]').forEach((element) => {
+      const index = Number(element.dataset['rowIndex'])
+      if (!Number.isInteger(index)) return
+      const rect = element.getBoundingClientRect()
+      // Strict comparisons: a row whose data area touches the header bottom or
+      // the viewport bottom is visible (partly visible counts); a row entirely
+      // above the header or entirely below the viewport is not.
+      if (rect.bottom <= visibleTop || rect.top >= containerRect.bottom) return
+      if (first === null || index < first) first = index
+      if (last === null || index > last) last = index
+    })
+    if (first === null || last === null) {
+      clear()
+      return
+    }
+    // Clamp to the known total: positions stay inside the current view even if
+    // a row's box survives a count shrink for one commit.
+    const start = Math.min(first + 1, totalRows)
+    const end = Math.min(last + 1, totalRows)
+    setVisibleRowRange((previous) =>
+      previous !== null && previous.start === start && previous.end === end
+        ? previous
+        : { start, end },
+    )
+  }, [virtualItems, totalRows, headerHeight])
+  /**
    * S5: exactly one row carries `tabIndex=0`. Prefer the last focused row
    * while it is rendered; otherwise the first rendered row keeps the grid
    * Tab-reachable after a scroll unmounts the remembered row.
@@ -909,6 +982,21 @@ export function DataGrid({
    */
   const busyStatus: string | null =
     queryBusy === 'filtering' ? 'Filtering…' : queryBusy === 'sorting' ? 'Sorting…' : null
+  /**
+   * WF-07 (WFD-07 option A): the approved footer copy, exactly three strings.
+   * A `null` model total is the model's documented "count not known yet" state
+   * (`GridViewportModel.totalRows: number | null`); zero rows is the empty
+   * view; a ready grid whose rows cannot be measured names no range rather
+   * than guessing from the virtualizer window. Static text only.
+   */
+  const rowRangeLabel: string =
+    model.totalRows === null
+      ? 'Row range unavailable'
+      : totalRows === 0
+        ? 'No rows'
+        : visibleRowRange === null
+          ? 'Row range unavailable'
+          : `Visible rows ${String(visibleRowRange.start)}–${String(visibleRowRange.end)} of ${String(totalRows)}`
 
   return (
     <div className="grid" data-testid="grid">
@@ -1528,6 +1616,13 @@ export function DataGrid({
             {`fetches=${String(stats.fetchCalls)} requested=${String(stats.rowsRequested)} received=${String(stats.rowsReceived)} maxSpan=${String(stats.maxSpanRows)} cached=${String(stats.cachedRows)}`}
           </span>
         </details>
+        {/* WF-07 (WFD-07 option A): one static footer label beside the
+            counters and the busy status. Deliberately NOT a live region: the
+            text is updated in place on scroll/resize through the virtualizer
+            re-render, never announced, and adds no focus target. */}
+        <span className="grid-row-range" data-testid="grid-row-range">
+          {rowRangeLabel}
+        </span>
         {editError !== null && (
           // q-3: the visible rejection text is not itself a live region; the
           // app's single `aria-live="polite"` region announces it (value-free)
