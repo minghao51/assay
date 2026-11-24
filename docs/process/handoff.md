@@ -105,6 +105,25 @@ re-pointed at the production entry. Two deviations are recorded rather than smoo
 candidate — a **maintainer** decision, not an implementer's, since the production number actually fell.
 Ledger: successor queue §12.
 
+**Fourth dated dispatch (2026-11-23) — the delegated wave: R-2, R-3, R-5, R-6 CLOSED and ADR 0052
+implemented.** With judgement delegated, the four WFD rows got selections
+([record](handoff/20261123-wfd-selections.md)) and the executable ones shipped. **The cancel op is real**
+(ADR 0052): one additive wire pair handled **before** lane routing so it never queues behind the query it
+cancels, **`engine/query`-only** with a typed value-free refusal otherwise, honest `cancelSent:false`,
+delivered rows never retracted, Cancel copy byte-identical — and `SqlPanel` now abandons first and asks
+second, so a refused cancel cannot unwind a cancellation. The reviewer ran both drills itself (routing
+the cancel into the lane fails the lane test; an ignoring-cancel fake fails the conformance case).
+**R-2 closed with no code** (its table already existed and was independently pinned). **R-6 closed as
+measured, not reopened**: at 1024×700/1440×900/1920×1080 the fixed pane is exactly the spec'd 320/360px,
+the editor never scrolls horizontally, and a 20-column result is reachable by panning; row density is
+height-bound, so a wider pane would not add a row — D-08 = A stands with evidence instead of an
+assertion. **R-5's blocking question is answered by probe**: computed and aliased SQL columns do carry
+real Arrow field types, so temporal parity is achievable with no engine or wire change, with the
+mapping limits recorded. **Still open:** R-1's implementation (selected), R-4's study (selected; no
+runtime authority), **R-7** (contract drafted, item 3 escalated to the architect) and **R-14** — now
+unblocked in principle but needing its own four product selections before code. Ledger: successor
+queue §13.
+
 **Last updated:** 2026-11-23. **Current lane:** launch readiness; the post-R1 runtime wave has closed
 **EW-02I**, **R2**, **U5** (EW-04D condition vii), **EW-03I-a** and **TB-1**, with **ADR 0049/0050
 Accepted**; the post-EW-03I-a queue has since closed in full (EW-03I-b, EW-04I, TB-2, ENG-1 = the ADR

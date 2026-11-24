@@ -21,6 +21,18 @@ does not close a row, and a row closes only with its evidence, gates and ledger 
 | R-7 | contract (not WFD) | **Drafted, escalated** — item 3 needs an architect ruling                    | Contract drafting, not runtime                     |
 | R-6 | evidence (not WFD) | **Not selected** — trigger 1 is being measured; trigger 2 was not exercised  | Nothing (see §8)                                   |
 
+**Status at the end of the 2026-11-23 fourth dispatch** (ledger: [successor queue](20261121-successor-queue.md) §13):
+
+- **R-1** — selected; implementation dispatch pending (subparts 1–3, 4 deferred).
+- **R-2** — **closed by this record alone**, no code: option A approves today's behaviour and strings.
+- **R-3** — **shipped**: the footer label is geometry-derived, and the four weakly-pinned states were
+  strengthened after review.
+- **R-4** — selection recorded; the **study is not yet commissioned**, and no runtime authority follows.
+- **R-5** — contract delivered and its blocking question answered by probe; **nothing implemented**.
+- **R-7** — contract drafted, item 3 escalated to the architect; **nothing implemented**.
+- **R-6** — measured and **not reopened**: trigger 1 fails at all three viewports, trigger 2 was not
+  exercised.
+
 ## 1. R-1 — WFD-05, WF-03 shell/panel presentation
 
 **Selected:** subparts **1** (Help opener moves beside Settings), **2** (hierarchy cleanup by
