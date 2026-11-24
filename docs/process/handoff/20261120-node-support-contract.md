@@ -73,7 +73,10 @@ unless `--engine-strict` is used).
    admits them; none is individually claimed); later majors are not admitted at all. The old `>=22`
    minimum is gone, so the plan's "verify the 22 floor" acceptance item is **closed by narrowing the
    claim**, not by a Node 22 run; if a Node 22 consumer ever appears, re-widening is a manifest change
-   plus a 22-line run. `pnpm current-state:check` enforces the rule (fact 6,
+   plus a 22-line run. **2026-11-24: that trigger is withdrawn.** The maintainer stated that only
+   Node 24 and later are in use here, so no Node 22 consumer exists or is planned; the conditional
+   re-widen row (R-22) is closed as **not applicable** rather than left waiting on an event that
+   cannot occur. `^24.0.0` stands and `current-state:check` fact 6 keeps enforcing it. `pnpm current-state:check` enforces the rule (fact 6,
    `product-node-floor`): every manifest that declares `engines.node` must equal the root
    `^24.0.0`.
    No published artifact existed under `>=22` (nothing is published yet), so no released package is
