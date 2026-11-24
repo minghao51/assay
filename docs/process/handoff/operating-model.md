@@ -66,20 +66,17 @@ exercised for M2 (7 tasks) and M3 (6 tasks) with 4 request-changes loops, 3 prov
 interruptions, and zero lost work.
 
 **Agents** (user scope, `~/.pi/agent/agents/`): `worker`, `reviewer`, plus the
-repo-local `assay-luna-worker` (pinned to `openai-codex/gpt-6-luna`). **Current
-roster (maintainer preference, recorded 2026-10-17; supersedes the 2026-09-28
-pin):** implementer `zai/glm-5.3-flash` **first**, ideally reviewed by
-`openai-codex/gpt-6-luna` as a fresh reviewer session; **fallback when the GLM
-lane is unavailable** (Go-lane usage-limit 429s, current since 2026-10-17):
-Luna implements via `assay-luna-worker` and the **parent orchestrator
-independently reviews** (gates + temporary mutants, clean tree, never the
-implementing session). The same model never both implements and reviews a
-change. **Fallback for agents without a `model:` pin = `opencode-go/mimo-v2.6-pro`.**
-Known provider limits: zai 5-hour 429 windows; OpenAI credit exhaustion;
-OpenCode Go lane limits — check availability before dispatching. Dispatch one
-subagent at a time (provider rate limits); parallel _tasks_ run in separate
-git worktrees instead.
-**Roster history:** GLM → `openai-codex/gpt-5.6-sol` → GLM (provider-diversity suspended 2026-09-19
+repo-local `assay-luna-worker` (pinned to `openai-codex/gpt-6-luna`). **Current roster (model-agnostic, recorded 2026-11-24; supersedes every named-lane preference):**
+**there is no dependency on any single provider or model.** Two roles matter, not two vendors —
+an implementer session and a **different** reviewer session. Use whichever configured model is
+available for each; the rule that binds is "the same model never both implements and reviews a change",
+not a named lane. The 2026-11-23 batch ran implementers on `opencode-go/deepseek-v4.1-flash` and
+reviewers on `openai-codex/gpt-6-luna` because that is what was configured, and any later roster that
+supplies different models is equally valid — including a GLM model, if one is configured: nothing here
+forbids it, it is simply no longer a prerequisite, a fallback chain, or a renewal obligation.
+Dispatch one subagent at a time per provider's rate limits; parallel _tasks_ run in separate git
+worktrees instead.
+**Roster history:** (2026-11-24: the GLM-first preference and its API-key dependency are **removed** — the roster is model-agnostic; see above) GLM → `openai-codex/gpt-5.6-sol` → GLM (provider-diversity suspended 2026-09-19
 after a Codex usage-limit block) → deepseek-v4.1-flash worker switch 2026-09-20 → reviewer
 GLM-5.3-Flash → **MiMo-V2.6-Pro 2026-09-28** → Luna-worker/parent-reviewer episode roster
 2026-10-14 (rm-3 through ptv2-4) → **GLM-first/Luna-reviewer preference with Luna-worker/

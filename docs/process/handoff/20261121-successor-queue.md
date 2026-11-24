@@ -647,19 +647,90 @@ row that waits on an event the owner has ruled out is not a backlog item, it is 
 
 Sorted by _why_ it needs a person, because that determines whether anything can move at all.
 
-| Item                                                            | What is actually required                                                                                   | Strictly human?                                                                                                                                                                                                                                                             |
-| --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **R-16** npm `@assay` scope                                     | Create the `@assay` org on npmjs.com from the maintainer's account, with 2FA and the registry ToS accepted. | **Yes — credentials and account-bound consent.** No amount of engineering substitutes for it; the [runbook](20260926-publish-runbook.md) is ready and waits on this.                                                                                                        |
-| **R-20** Actions billing                                        | Restore the payment method / raise the spending limit on the GitHub account.                                | **Yes — payment.** Run `45401945125` (and every run since 2026-11-21) is four job-start refusals with `steps=0`; that is the account, not the code. Last executed run `44886310732` was green.                                                                              |
-| **R-17** trademark / domain                                     | Legal clearance for the name plus registration in the jurisdictions you care about.                         | **Yes — legal, fees, procurement.** Independent of R-15 by design.                                                                                                                                                                                                          |
-| **GLM worker-lane key** ([open asks](20261019-open-asks.md) §1) | Renew the API key (401 `api_key_expired` since ptv2-5).                                                     | **Yes — credential.** The roster in [operating model](operating-model.md) §7.6 names it; the Luna fallback works meanwhile.                                                                                                                                                 |
-| **R-21** RD-T07 study                                           | Recruit participants and run sessions against the two synthetic fixtures.                                   | **Yes — people.** I can write the protocol, screener and both fixtures, but recruitment and observation are human. Until it runs, no copy may say "validated"/"intuitive"/"easier".                                                                                         |
-| **R-19** demo dataset                                           | Pick a licence-compatible open-data source, then judge the injected flaws.                                  | **Half.** The **source pick** is a licensing-risk decision (human); the curation and flaw injection after that are mechanical work I can do.                                                                                                                                |
-| **R-15** publication policy + first release                     | Decide what may be published and under what policy, then execute the release.                               | **Split.** The **policy decision** is human (your name and licence on the artifact). The **release mechanics** are mine, once R-16 and R-20 are done and the policy exists — publishing is explicitly not authorised today (D-12 authorises pushes only).                   |
-| **R-18** collector hosting + disclosure                         | Choose a host, provide TLS and deploy the self-hosted collector.                                            | **Split.** The **host choice and its data-residency/fee stance** are human. The **disclosure copy** is already live ([telemetry disclosure](../../telemetry-disclosure.md)); the deployment config is work I can write — deploying into your account needs your credential. |
-| **R-22** Node 22 re-widen                                       | —                                                                                                           | **Withdrawn** (above).                                                                                                                                                                                                                                                      |
+| Item                                        | What is actually required                                                                                   | Strictly human?                                                                                                                                                                                                                                                             |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **R-16** npm `@assay` scope                 | Create the `@assay` org on npmjs.com from the maintainer's account, with 2FA and the registry ToS accepted. | **Yes — credentials and account-bound consent.** No amount of engineering substitutes for it; the [runbook](20260926-publish-runbook.md) is ready and waits on this.                                                                                                        |
+| **R-20** Actions billing                    | Restore the payment method / raise the spending limit on the GitHub account.                                | **Yes — payment.** Run `45401945125` (and every run since 2026-11-21) is four job-start refusals with `steps=0`; that is the account, not the code. Last executed run `44886310732` was green.                                                                              |
+| **R-17** trademark / domain                 | Legal clearance for the name plus registration in the jurisdictions you care about.                         | **Yes — legal, fees, procurement.** Independent of R-15 by design.                                                                                                                                                                                                          |
+| **R-21** RD-T07 study                       | Recruit participants and run sessions against the two synthetic fixtures.                                   | **Yes — people.** I can write the protocol, screener and both fixtures, but recruitment and observation are human. Until it runs, no copy may say "validated"/"intuitive"/"easier".                                                                                         |
+| **R-19** demo dataset                       | Pick a licence-compatible open-data source, then judge the injected flaws.                                  | **Half.** The **source pick** is a licensing-risk decision (human); the curation and flaw injection after that are mechanical work I can do.                                                                                                                                |
+| **R-15** publication policy + first release | Decide what may be published and under what policy, then execute the release.                               | **Split.** The **policy decision** is human (your name and licence on the artifact). The **release mechanics** are mine, once R-16 and R-20 are done and the policy exists — publishing is explicitly not authorised today (D-12 authorises pushes only).                   |
+| **R-18** collector hosting + disclosure     | Choose a host, provide TLS and deploy the self-hosted collector.                                            | **Split.** The **host choice and its data-residency/fee stance** are human. The **disclosure copy** is already live ([telemetry disclosure](../../telemetry-disclosure.md)); the deployment config is work I can write — deploying into your account needs your credential. |
+| **R-22** Node 22 re-widen                   | —                                                                                                           | **Withdrawn** (above).                                                                                                                                                                                                                                                      |
 
 **What that leaves for me if you unblock any single one:** R-15 and R-18 become my work the moment the
 policy/host decision exists; R-19 becomes my work the moment a source is picked; nothing in R-16, R-17,
 R-20, R-21 or the GLM key has an engineering remainder. The only strictly-human set is
 **account (R-16, R-20, GLM key) + legal (R-17) + people (R-21)**.
+
+## 15. Maintainer scope rulings (2026-11-24)
+
+Four rulings that change what "remaining" means. Each shrinks scope; none weakens a gate.
+
+### 15.1 GLM is no longer a dependency — the roster is model-agnostic
+
+The GLM-first dispatch preference and its API-key renewal obligation are **withdrawn**
+([operating model](operating-model.md), [open asks](20261019-open-asks.md) §1). There is no vendor
+prerequisite in the dispatch path: two _roles_ matter (an implementer, and a different reviewer), not
+two named lanes. A configured GLM model still works if it is selected — it is simply not required, not
+a fallback chain, and not something anyone must renew.
+
+### 15.2 R-18 collector hosting — deferred; local validation is the bar
+
+**Deferred deliberately, not blocked.** Nothing needs a hosted collector until the web app is mature and
+proven useful; everything (web app, pipeline, validation, diff, telemetry emission) is validated locally
+today, and the telemetry suite already proves opt-out, allowlisting and endpoint-free builds. The public
+[disclosure](../../telemetry-disclosure.md) is live, so the honest half is already done.
+
+When it does move, the constraint to plan around: the collector is a **server endpoint**, so a purely
+static host is not enough. Cheap options, in order of fit:
+
+| Option                         | Fit            | Notes                                                                                                               |
+| ------------------------------ | -------------- | ------------------------------------------------------------------------------------------------------------------- |
+| **Netlify Functions** (pref.)  | Good           | One function per route; the free tier covers a minimal collector's volume, and the site and endpoint stay together. |
+| **Cloudflare Workers**         | Good           | Cheapest at volume; slightly more config than Netlify.                                                              |
+| **Fly.io / small VPS**         | Fine           | More control than this needs, and more operational surface.                                                         |
+| **Static host (GitHub Pages)** | **Not viable** | No server runtime — nowhere to receive a POST.                                                                      |
+
+No host is adopted here; the minimal collector is already specified in the
+[operator contract](../../engineering/07-telemetry-collector.md).
+
+### 15.3 R-15 publication — the gate is "our own gates pass", not a policy document
+
+The heavy publication-policy framing is **over-engineering** and is dropped. Publishing is gated on what
+already exists and is already enforced:
+
+1. **the local suite is green** — `pnpm test` (zero skipped), `typecheck`, `lint`, `format`, `build`,
+   the docs/ADR/current-state/assurance checks, the pinned VS Code host e2e and the pack consumer smoke;
+2. **the eval/conformance legs pass** — the real-engine conformance suite and the CLI agreement suites;
+3. **the `@assay` scope is claimed** (R-16), so artifacts land under our name.
+
+What survives from the old framing is the short list of what **must not** be published, and it is short
+because the packages already encode it: private packages stay unpublished (`data-sources`,
+`engine-duckdb`, `pipeline`, and every app); no telemetry endpoint is baked into a published bundle
+without the configured-build disclosure; no fixture carries sensitive data (all fixtures are synthetic);
+and no release without a changeset. That is the whole policy. The
+[publish runbook](20260926-publish-runbook.md) keeps its mechanical steps (exact sequence, what not to
+publish, rollback) and loses its policy prerequisite.
+
+### 15.4 R-19 demo dataset — synthetic-derived, no licensing surface
+
+**Proposed: craft it, do not source it.** A generated dataset beats an open-data pick on every axis that
+matters here: zero licensing risk, zero PII, byte-reproducible from a seed, and it can carry
+_deliberately shaped_ flaws — which is the entire point of a demo that shows validation, diff and repair.
+It also removes the last human dependency from PT-0's demo row.
+
+Shape, generated by the existing fixture path (`fixtures/parquet/generate.sh`, DuckDB-native, checksums
+in `manifest.json`):
+
+- one `orders`-style fact table, ~50k rows, with a realistic type spread (dates, decimals, a struct, a
+  list, a `UHUGEINT`, a temporal) so the grid, profile and nested preview all have something honest to
+  show;
+- injected flaws that exercise the product's own surfaces: duplicate keys, a null-heavy column, three
+  type-inconsistent values, a referentially broken dimension row, a temporal outlier, and one column a
+  contract can plausibly fail on;
+- a small `dim` table for the diff/join story, and a JSONL sibling so the format spread is visible;
+- produced by a committed generator with a fixed seed, so the demo is regenerable and its golden
+  checksums stay meaningful.
+
+No source-data licence, no attribution obligation, nothing to redact.
