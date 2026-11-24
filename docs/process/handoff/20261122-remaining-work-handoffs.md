@@ -34,7 +34,12 @@ paste command tails into the closing record.
 corepack pnpm install --frozen-lockfile
 pnpm run doctor                                   # offline preflight (11 checks; a port held by
                                                   # another project is a warn, not a failure)
-export DUCKDB=/tmp/duckdb PATH=/tmp:$PATH          # pinned CLI v1.5.5
+export DUCKDB=/tmp/duckdb PATH=/tmp:$PATH          # pinned CLI v1.5.5 — verify it still exists:
+                                                  #   /tmp/duckdb --version
+                                                  # If the CLI is missing, its agreement tests SKIP
+                                                  # (existsSync guards) and `pnpm test` still passes.
+                                                  # Read the skipped count, not just the failures —
+                                                  # 76 tests in 4 files vanish silently otherwise.
 pnpm format:check
 NODE_OPTIONS=--max-old-space-size=4096 pnpm lint   # type-aware lint peaks ≈3 GB RSS on 16 GB
 pnpm typecheck
