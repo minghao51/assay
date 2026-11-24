@@ -1,9 +1,19 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { EngineTableHandle } from '@assay/engine-duckdb'
 import { App } from './App'
+import {
+  IDLE_CAPABILITY,
+  IDLE_DROP_HINT,
+  IDLE_ENGINE_LINE,
+  IDLE_ENGINE_NOTE,
+  IDLE_FORMATS,
+} from './lib/app'
+import { WelcomeBlock } from './workbench/WelcomeBlock'
 import type { ArrowTableLike } from './grid/provider'
 
 /**
@@ -576,5 +586,203 @@ describe('q-15 — workbench two-pane shell', () => {
     })
     expect(toggle.getAttribute('aria-expanded')).toBe('true')
     expect(screen.getByRole('button', { name: 'Collapse workbench pane' })).toBe(toggle)
+  })
+})
+
+/**
+ * WF-03 subpart 1 (WFD-05 selection §1, 2026-11-23) — the guide's ONE opener
+ * moved out of the open-flow line and into the header cluster, beside the
+ * Settings opener. What this block pins, and nothing else:
+ *
+ * 1. exactly one opener in `idle` and in `ready`, a direct child of the
+ *    cluster that also holds the Settings opener (the move itself), with no
+ *    second "Help" button anywhere for any breakpoint;
+ * 2. the open-flow control line no longer contains it — the ready stack's line
+ *    box is the Open control's alone, which is what keeps the ≤140px
+ *    ready-workspace top a measured (not assumed) fact;
+ * 3. the unchanged guard (`helpBlocked || intent.kind !== 'none'`) and the
+ *    unchanged focus return onto the moved control.
+ */
+describe('WF-03 subpart 1 — the guide opener lives in the header cluster', () => {
+  it('renders exactly one opener in idle and in ready, beside the Settings opener', async () => {
+    render(<App />)
+    const cluster = screen.getByTestId('header-controls')
+    expect(screen.getByTestId('open-status').getAttribute('data-phase')).toBe('idle')
+
+    const idleOpeners = screen.getAllByTestId('help-open')
+    expect(idleOpeners).toHaveLength(1)
+    expect(idleOpeners[0]?.parentElement).toBe(cluster)
+    expect(cluster.contains(screen.getByTestId('settings-toggle'))).toBe(true)
+    // One Help control, no responsive duplicate at any breakpoint.
+    expect(screen.getAllByRole('button', { name: 'Help' })).toHaveLength(1)
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('open-button'))
+    })
+    await screen.findByTestId('schema-section')
+
+    const readyOpeners = screen.getAllByTestId('help-open')
+    expect(readyOpeners).toHaveLength(1)
+    expect(readyOpeners[0]?.parentElement).toBe(cluster)
+    expect(screen.getAllByRole('button', { name: 'Help' })).toHaveLength(1)
+    // The moved control is no longer part of the ready stack's control line.
+    expect(screen.getByTestId('open-flow').querySelector('[data-testid="help-open"]')).toBeNull()
+  })
+
+  it('keeps the modal guard and returns focus to the moved opener on close', async () => {
+    await open()
+    const opener = screen.getByTestId('help-open')
+
+    // Guard: while a different surface owns the modal the opener is disabled.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('settings-toggle'))
+    })
+    expect(screen.getByTestId('settings-dialog')).toBeTruthy()
+    expect((screen.getByTestId('help-open') as HTMLButtonElement).disabled).toBe(true)
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('settings-close'))
+    })
+    expect((screen.getByTestId('help-open') as HTMLButtonElement).disabled).toBe(false)
+
+    // Focus return: both close paths land back on the opener, wherever it sits.
+    opener.focus()
+    fireEvent.click(opener)
+    expect(screen.queryByTestId('workbench-help')).toBeTruthy()
+    fireEvent(screen.getByTestId('workbench-help'), new Event('cancel', { cancelable: true }))
+    expect(screen.queryByTestId('workbench-help')).toBeNull()
+    expect(document.activeElement).toBe(screen.getByTestId('help-open'))
+
+    opener.focus()
+    fireEvent.click(opener)
+    fireEvent.click(screen.getByTestId('help-close'))
+    expect(screen.queryByTestId('workbench-help')).toBeNull()
+    expect(document.activeElement).toBe(screen.getByTestId('help-open'))
+  })
+})
+
+/**
+ * WF-03 subpart 3 (WFD-05 selection §1, 2026-11-23) — the idle-only welcome
+ * block. App renders `<WelcomeBlock />` inside its existing
+ * `phase.kind === 'idle'` region (the uxv-4 insertion pattern); this block
+ * pins the two facts that are this row's: every visible line is an existing
+ * `lib/app.ts` constant rendered byte-exactly (the source pin proves the
+ * component introduces **no** copy literal of its own — subpart 4 stays
+ * deferred), and the block is present in `idle` and gone once the frame is
+ * `ready`. The `opening` and `error` absence legs live in the unchanged
+ * `App.open-status.test.tsx` (`does not render the welcome copy while
+ * opening` / `… on an open error`), which is why this suite adds no engine
+ * deferral or failure mock of its own.
+ */
+describe('WF-03 subpart 3 — the idle welcome block composes existing constants', () => {
+  const SOURCE = readFileSync(
+    resolve(process.cwd(), 'apps', 'web', 'src', 'workbench', 'WelcomeBlock.tsx'),
+    'utf8',
+  )
+  /** Source with comments stripped (prose must never satisfy a pin). */
+  const CODE = SOURCE.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
+
+  it('renders each existing IDLE_* constant byte-exactly, as direct children', () => {
+    render(<WelcomeBlock />)
+    const root = screen.getByTestId('idle-intro')
+    const lines: readonly (readonly [string, string])[] = [
+      ['idle-capability', IDLE_CAPABILITY],
+      ['idle-formats', IDLE_FORMATS],
+      ['idle-engine-line', IDLE_ENGINE_LINE],
+      ['idle-engine-note', IDLE_ENGINE_NOTE],
+      ['idle-drop-hint', IDLE_DROP_HINT],
+    ]
+    for (const [testId, copy] of lines) {
+      const line = screen.getByTestId(testId)
+      expect(line.textContent, `${testId} is the unchanged lib/app.ts constant`).toBe(copy)
+      expect(line.parentElement, `${testId} stays a direct child of the block`).toBe(root)
+      expect(line.tagName).toBe('P')
+    }
+    // Static copy: no control, heading, live region or focus target of its own.
+    expect(root.querySelectorAll('button, a, input, select, textarea, [tabindex]')).toHaveLength(0)
+    expect(root.querySelectorAll('h1, h2, h3, h4, h5, h6')).toHaveLength(0)
+    expect(root.querySelectorAll('[aria-live]')).toHaveLength(0)
+    expect(screen.queryByRole('status')).toBeNull()
+    cleanup()
+  })
+
+  it('renders App’s classified drop notice verbatim, and nothing when there is none', () => {
+    render(<WelcomeBlock dropNotice="that drop had no file" />)
+    const notice = screen.getByTestId('drop-notice')
+    expect(notice.textContent).toBe('that drop had no file')
+    expect(notice.getAttribute('role')).toBe('status')
+    cleanup()
+
+    render(<WelcomeBlock />)
+    expect(screen.queryByTestId('drop-notice')).toBeNull()
+  })
+
+  it('contains no copy literal of its own and no second source', () => {
+    // Exhaustive allowlist: the only quoted strings in the component are class
+    // names, testids, the `status` role and the constants' import path. Any new
+    // sentence — approved or not — lands here first.
+    const literals = [...CODE.matchAll(/'([^'\\\n]*)'|"([^"\\\n]*)"/g)].map(
+      (match) => match[1] ?? match[2] ?? '',
+    )
+    expect([...new Set(literals)].sort()).toEqual(
+      [
+        '../lib/app',
+        'drop-notice',
+        'idle-capability',
+        'idle-drop-hint',
+        'idle-drop-hint welcome-block-drop',
+        'idle-engine-line',
+        'idle-engine-note',
+        'idle-formats',
+        'idle-intro',
+        'idle-intro welcome-block',
+        'status',
+        'welcome-block-drop-notice',
+        'welcome-block-formats',
+        'welcome-block-lead',
+        'welcome-block-note',
+        'welcome-block-note-line',
+      ].sort(),
+    )
+    // Static: no state, no effect, no handler, no link, no telemetry, no engine.
+    for (const forbidden of [
+      /useState/,
+      /useEffect/,
+      /onClick/,
+      /onChange/,
+      /onKey/,
+      /aria-live/,
+      /href=/,
+      /telemetry/,
+      /engineClient/,
+    ]) {
+      expect(CODE, `the welcome block must not contain ${String(forbidden)}`).not.toMatch(forbidden)
+    }
+    for (const name of [
+      'IDLE_CAPABILITY',
+      'IDLE_FORMATS',
+      'IDLE_ENGINE_LINE',
+      'IDLE_ENGINE_NOTE',
+      'IDLE_DROP_HINT',
+    ]) {
+      expect(CODE.split(name).length - 1, `${name} is imported and rendered`).toBe(2)
+    }
+  })
+
+  it('is present in idle and absent once a dataset is ready', async () => {
+    render(<App />)
+    expect(screen.getByTestId('open-status').getAttribute('data-phase')).toBe('idle')
+    expect(screen.getByTestId('idle-intro')).toBeTruthy()
+    expect(screen.getByTestId('idle-capability').textContent).toBe(IDLE_CAPABILITY)
+    expect(screen.getByTestId('idle-drop-hint').textContent).toBe(IDLE_DROP_HINT)
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('open-button'))
+    })
+    await screen.findByTestId('schema-section')
+
+    expect(screen.getByTestId('open-status').getAttribute('data-phase')).toBe('ready')
+    expect(screen.queryByTestId('idle-intro')).toBeNull()
+    expect(screen.queryByTestId('idle-capability')).toBeNull()
+    expect(screen.queryByTestId('idle-drop-hint')).toBeNull()
   })
 })

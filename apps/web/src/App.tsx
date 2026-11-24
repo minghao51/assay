@@ -37,13 +37,8 @@ import { createOverlayAnchor, fileVersionAnchor } from './edit/overlay-base'
 import {
   APP_NAME,
   DROP_WITHOUT_FILE,
-  IDLE_CAPABILITY,
-  IDLE_DROP_HINT,
-  IDLE_ENGINE_LINE,
-  IDLE_ENGINE_NOTE,
   IDLE_EXAMPLE_ACTION,
   IDLE_EXAMPLE_HELPER,
-  IDLE_FORMATS,
   OPEN_CANCEL_LABEL,
   OPEN_PROGRESS_LABEL,
   SESSION_FAULT_COPY,
@@ -73,6 +68,7 @@ import {
   type WorkbenchTaskId,
 } from './workbench/tasks'
 import { PanelBoundary } from './workbench/PanelBoundary'
+import { WelcomeBlock } from './workbench/WelcomeBlock'
 import { WorkbenchSection } from './workbench/WorkbenchSection'
 import {
   comparisonSectionSummary,
@@ -2063,20 +2059,60 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
         <h1 className="workbench-heading">{APP_NAME}</h1>
         <p className="workbench-tagline">{TAGLINE}</p>
         {/*
-         * WF-06 (§4.6/K17): while a replacement intent owns the shell there is
-         * no second surface to open — Open, Help and Export are disabled and
-         * this opener is not rendered. (The guard itself is a native modal and
-         * the OS picker owns focus during `choosing`, so this only closes the
-         * `opening-candidate` window, where the ready region is inert but the
-         * header is not.)
+         * WF-03 subpart 1 (WFD-05 selection §1): the header cluster. The
+         * Settings opener and the guide's ONE opener sit side by side in the
+         * top-right corner the Settings opener already occupied, so the shell
+         * stops carrying two separately placed header controls. Nothing about
+         * either surface changes: Settings keeps its own open state, copy and
+         * focus return, and the guide keeps its single opener here in every
+         * phase. Presentational grouping only — no heading, no landmark, no
+         * tab stop and no modal arbitration moves into this wrapper.
          */}
-        {intent.kind === 'none' && (
-          <TelemetrySettings
-            onOpenChange={(open) => {
-              setSettingsOpen(open)
+        <div className="workbench-header-controls" data-testid="header-controls">
+          {/*
+           * WF-06 (§4.6/K17): while a replacement intent owns the shell there
+           * is no second surface to open — Open, Help and Export are disabled
+           * and this opener is not rendered. (The guard itself is a native
+           * modal and the OS picker owns focus during `choosing`, so this only
+           * closes the `opening-candidate` window, where the ready region is
+           * inert but the header is not.)
+           */}
+          {intent.kind === 'none' && (
+            <TelemetrySettings
+              onOpenChange={(open) => {
+                setSettingsOpen(open)
+              }}
+            />
+          )}
+          {/*
+           * rd-7 (D-03): the ONE way into the guide, beside Settings. It was
+           * inline in the open-flow line; it now shares the top-right cluster
+           * with the Settings opener, which removes it from the ready stack's
+           * line box entirely (that line is unchanged and still the Open
+           * control's height), so the ≤140px ready-top and the 1024×700
+           * first-paint budgets are measured after the move. The disabled
+           * guard and the `openModal` arbitration below are byte-identical to
+           * the pre-move control: while Export, Settings, the telemetry
+           * disclosure or a replacement intent owns the shell this control is
+           * disabled — neither clickable nor focusable — and while the guide
+           * is open it stays enabled because it is the focus-return target.
+           */}
+          <button
+            type="button"
+            className="workbench-help-open"
+            data-testid="help-open"
+            aria-haspopup="dialog"
+            /* K17: no second surface opens while a replacement intent owns the
+               shell (the guard/choosing/opening-candidate window). */
+            disabled={helpBlocked || intent.kind !== 'none'}
+            onClick={() => {
+              if (helpBlocked || intent.kind !== 'none') return
+              setHelpOpen(true)
             }}
-          />
-        )}
+          >
+            {WORKBENCH_HELP_OPEN_LABEL}
+          </button>
+        </div>
         {disclosureOpen && (
           <TelemetryDisclosure
             onDismiss={() => {
@@ -2151,28 +2187,17 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
           />
         )}
 
-        {phase.kind === 'idle' && (
-          <div className="idle-intro" data-testid="idle-intro">
-            <p data-testid="idle-capability">{IDLE_CAPABILITY}</p>
-            <p data-testid="idle-formats">{IDLE_FORMATS}</p>
-            {/*
-             * R-12: the engine explanation is static copy, not engine state —
-             * it renders only inside this idle block and reads nothing from
-             * the session, engine or telemetry. No live status, benchmark,
-             * memory or version claim and no new request/event.
-             */}
-            <p data-testid="idle-engine-line">{IDLE_ENGINE_LINE}</p>
-            <p data-testid="idle-engine-note">{IDLE_ENGINE_NOTE}</p>
-            <p className="idle-drop-hint" data-testid="idle-drop-hint">
-              {IDLE_DROP_HINT}
-            </p>
-            {dropNotice !== null && (
-              <p role="status" data-testid="drop-notice">
-                {dropNotice}
-              </p>
-            )}
-          </div>
-        )}
+        {/*
+         * WF-03 subpart 3: the idle-only welcome block (the uxv-4 insertion
+         * pattern). The gate is App's existing `phase.kind === 'idle'`
+         * condition, so the block is present on the first-run screen and
+         * absent in opening/ready/error; the block itself composes only the
+         * existing `IDLE_*` constants (subpart 4 — new first-minute strings —
+         * is deferred). Open, the CSV review entry and the example data action
+         * live in the open-flow control block below and stay available after
+         * any failure, whatever this block does.
+         */}
+        {phase.kind === 'idle' && <WelcomeBlock dropNotice={dropNotice} />}
 
         <section className="workbench-open-flow" data-testid="open-flow">
           <button
@@ -2414,30 +2439,6 @@ export function App({ telemetry: injectedTelemetry }: AppProps = {}) {
               <span key={openAnnouncement.seq}>{openAnnouncement.text}</span>
             )}
           </span>
-          {/*
-           * rd-7 (D-03) header control: the ONE way into the guide, present in
-           * every phase. It is inline in this header line and no taller than the
-           * Open control beside it, so in the ready frame it adds no line box
-           * (the ≤140px ready-top and the 1024×700 first-paint budgets measure
-           * byte-identically to the pre-slice baseline). Modal arbitration lives
-           * in `openModal`: while Export, Settings or the telemetry disclosure
-           * is open this control is disabled — neither clickable nor focusable.
-           */}
-          <button
-            type="button"
-            className="workbench-help-open"
-            data-testid="help-open"
-            aria-haspopup="dialog"
-            /* K17: no second surface opens while a replacement intent owns the
-               shell (the guard/choosing/opening-candidate window). */
-            disabled={helpBlocked || intent.kind !== 'none'}
-            onClick={() => {
-              if (helpBlocked || intent.kind !== 'none') return
-              setHelpOpen(true)
-            }}
-          >
-            {WORKBENCH_HELP_OPEN_LABEL}
-          </button>
           {phase.kind === 'error' && (
             // UG-5: a failed open states a one-line human cause (classified,
             // never the raw DuckDB diagnostic), offers the same open path back
