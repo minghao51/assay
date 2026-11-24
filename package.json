@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Assay — the local-first data workbench (monorepo root)",
+  "description": "Assay \u2014 the local-first data workbench (monorepo root)",
   "license": "AGPL-3.0-or-later",
   "packageManager": "pnpm@11.26.0",
   "engines": {
@@ -19,7 +19,7 @@
     "assurance-map:check": "node scripts/check-assurance-map.mjs",
     "doctor": "node scripts/doctor.mjs",
     "measure:bundle": "node scripts/measure-bundle.mjs",
-    "typecheck": "turbo run typecheck",
+    "typecheck": "turbo run typecheck && tsc --noEmit -p tsconfig.json",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
@@ -32,6 +32,7 @@
     "version-packages": "changeset version"
   },
   "devDependencies": {
+    "@assay/telemetry": "workspace:*",
     "@axe-core/playwright": "^4.13.0",
     "@changesets/cli": "^3.0.3",
     "@eslint/js": "^9.30.0",

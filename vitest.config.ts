@@ -50,6 +50,11 @@ export default defineConfig({
             'packages/*/src/**/*.test.ts',
             'apps/cli/src/**/*.test.{ts,tsx}',
             'apps/vscode/src/pure/**/*.test.ts',
+            // The Netlify collector function is deployment code (like
+            // `scripts/**`): plain Node, no DOM, outside the coverage include.
+            // Folding its suite into the node project means the repo's own
+            // `pnpm test` exercises it instead of only the deploy workflow.
+            'netlify/functions/**/*.test.ts',
             // A02/A04: the repo's zero-dependency tooling scripts are plain
             // Node ESM with injected seams; their tests live beside them and
             // need the node environment. No coverage impact — the coverage

@@ -68,7 +68,10 @@ describe('dependency-report — baseline', () => {
   })
 
   it('lists every direct declaration exactly once', () => {
-    expect(committed.entries).toHaveLength(114)
+    // 115 = 114 before the collector deployment, which adds one entry: the root
+    // manifest's `@assay/telemetry` workspace link that `netlify/functions/`
+    // imports through. External declarations and annotations are unchanged.
+    expect(committed.entries).toHaveLength(115)
     expect(committed.entries.filter((entry) => entry.source === 'external')).toHaveLength(74)
     expect(committed.annotations).toHaveLength(31)
     expect(committed.importers).toHaveLength(21)

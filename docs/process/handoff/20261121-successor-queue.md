@@ -675,15 +675,31 @@ prerequisite in the dispatch path: two _roles_ matter (an implementer, and a dif
 two named lanes. A configured GLM model still works if it is selected — it is simply not required, not
 a fallback chain, and not something anyone must renew.
 
-### 15.2 R-18 collector hosting — deferred; local validation is the bar
+### 15.2 R-18 collector hosting — **Netlify Functions adopted**; deployment unexercised
 
-**Deferred deliberately, not blocked.** Nothing needs a hosted collector until the web app is mature and
-proven useful; everything (web app, pipeline, validation, diff, telemetry emission) is validated locally
-today, and the telemetry suite already proves opt-out, allowlisting and endpoint-free builds. The public
-[disclosure](../../telemetry-disclosure.md) is live, so the honest half is already done.
+**Adopted 2026-11-24 ([ADR 0053](../../adr/0053-collector-hosted-on-netlify-functions.md)).** The
+maintainer chose Netlify Functions (the first option in the table below) as the collector's host, so the
+reference deployment now lives in this repository: the function is
+[`netlify/functions/collect.ts`](../../../netlify/functions/collect.ts), configured by
+[`netlify.toml`](../../../netlify.toml), and validated-and-deployed by
+[`.github/workflows/netlify-collector.yml`](../../../.github/workflows/netlify-collector.yml). It
+implements the [operator contract](../../engineering/07-telemetry-collector.md) §2 wire shape by reusing
+`@assay/telemetry`'s schema and allowlist, and by design it stores and forwards nothing (contract §5).
 
-When it does move, the constraint to plan around: the collector is a **server endpoint**, so a purely
-static host is not enough. Cheap options, in order of fit:
+**Deployment is unexercised.** Remote GitHub Actions is billing-blocked (R-20: four job-start refusals
+with `steps=0`), so the workflow has never run and no function is deployed. What "local validation is the
+bar" means now: the function has a real unit suite that runs inside the repo's own `pnpm test`, the root
+`pnpm typecheck` covers it, and every refusal path is pinned locally — the code and its gates are real,
+the running service is not yet.
+
+**Remaining human step.** Create the Netlify site for the collector, add the `NETLIFY_AUTH_TOKEN` and
+`NETLIFY_SITE_ID` repository secrets, run the workflow once Actions is restored, then build the app with
+`ASSAY_TELEMETRY_ENDPOINT=https://<site>/.netlify/functions/collect`. Until then the stock build stays
+endpoint-free and inert, and the public [disclosure](../../telemetry-disclosure.md) — unchanged — stays
+accurate: nothing is collected anywhere.
+
+Why a server runtime was needed at all, and the options that were weighed (kept as the record of the
+choice):
 
 | Option                         | Fit            | Notes                                                                                                               |
 | ------------------------------ | -------------- | ------------------------------------------------------------------------------------------------------------------- |
@@ -692,7 +708,7 @@ static host is not enough. Cheap options, in order of fit:
 | **Fly.io / small VPS**         | Fine           | More control than this needs, and more operational surface.                                                         |
 | **Static host (GitHub Pages)** | **Not viable** | No server runtime — nowhere to receive a POST.                                                                      |
 
-No host is adopted here; the minimal collector is already specified in the
+The host is adopted (Netlify Functions); the minimal collector it serves is still specified in the
 [operator contract](../../engineering/07-telemetry-collector.md).
 
 ### 15.3 R-15 publication — the gate is "our own gates pass", not a policy document

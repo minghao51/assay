@@ -396,6 +396,63 @@
   "entries": [
     {
       "importer": ".",
+      "name": "@assay/telemetry",
+      "source": "workspace",
+      "section": "devDependencies",
+      "declared": "workspace:*",
+      "declaredRange": "workspace:*",
+      "catalog": null,
+      "locked": "link:packages/telemetry",
+      "workspaceTarget": "packages/telemetry",
+      "engines": null,
+      "peerDependencies": null,
+      "useSiteCount": 5,
+      "useSites": [
+        {
+          "file": "netlify/functions/collect.test.ts",
+          "line": 18,
+          "via": "import",
+          "symbols": [
+            "ENVELOPE_SCHEMA",
+            "EVENTS",
+            "EVENT_SCHEMAS",
+            "EventName",
+            "FieldSpec",
+            "ValidationErrorCode"
+          ]
+        },
+        {
+          "file": "netlify/functions/collect.ts",
+          "line": 69,
+          "via": "import",
+          "symbols": ["MAX_BATCH_BYTES", "MAX_BATCH_EVENTS", "validateEvent", "ValidationErrorCode"]
+        },
+        {
+          "file": "pnpm-lock.yaml",
+          "line": 47,
+          "via": "config-string",
+          "symbols": ["@assay/telemetry"]
+        },
+        {
+          "file": "pnpm-lock.yaml",
+          "line": 110,
+          "via": "config-string",
+          "symbols": ["@assay/telemetry"]
+        },
+        {
+          "file": "pnpm-lock.yaml",
+          "line": 201,
+          "via": "config-string",
+          "symbols": ["@assay/telemetry"]
+        }
+      ],
+      "useSitesTruncated": false,
+      "kind": "workspace",
+      "rationale": "internal workspace link (devDependencies); the importer consumes TypeScript source through the package `exports` field and the apps → ui/core → domain direction is lint-enforced",
+      "pinRationale": null
+    },
+    {
+      "importer": ".",
       "name": "@axe-core/playwright",
       "source": "external",
       "section": "devDependencies",
@@ -412,7 +469,7 @@
       "useSites": [
         {
           "file": "pnpm-lock.yaml",
-          "line": 47,
+          "line": 50,
           "via": "config-string",
           "symbols": ["@axe-core/playwright"]
         },
@@ -461,7 +518,7 @@
         },
         {
           "file": "pnpm-lock.yaml",
-          "line": 50,
+          "line": 53,
           "via": "config-string",
           "symbols": ["@changesets/cli"]
         }
@@ -495,7 +552,7 @@
         },
         {
           "file": "pnpm-lock.yaml",
-          "line": 53,
+          "line": 56,
           "via": "config-string",
           "symbols": ["@eslint/js"]
         }
@@ -541,7 +598,7 @@
         },
         {
           "file": "pnpm-lock.yaml",
-          "line": 56,
+          "line": 59,
           "via": "config-string",
           "symbols": ["@playwright/test"]
         },
@@ -609,55 +666,55 @@
         },
         {
           "file": "pnpm-lock.yaml",
-          "line": 59,
+          "line": 62,
           "via": "config-string",
           "symbols": ["@types/node"]
         },
         {
           "file": "pnpm-lock.yaml",
-          "line": 120,
+          "line": 123,
           "via": "config-string",
           "symbols": ["@types/node"]
         },
         {
           "file": "pnpm-lock.yaml",
-          "line": 156,
+          "line": 159,
           "via": "config-string",
           "symbols": ["@types/node"]
         },
         {
           "file": "pnpm-lock.yaml",
-          "line": 374,
+          "line": 377,
           "via": "config-string",
           "symbols": ["@types/node"]
         },
         {
           "file": "pnpm-lock.yaml",
-          "line": 392,
+          "line": 395,
           "via": "config-string",
           "symbols": ["@types/node"]
         },
         {
           "file": "pnpm-lock.yaml",
-          "line": 420,
+          "line": 423,
           "via": "config-string",
           "symbols": ["@types/node"]
         },
         {
           "file": "pnpm-lock.yaml",
-          "line": 448,
+          "line": 451,
           "via": "config-string",
           "symbols": ["@types/node"]
         },
         {
           "file": "pnpm-lock.yaml",
-          "line": 2307,
+          "line": 2310,
           "via": "config-string",
           "symbols": ["@types/node"]
         },
         {
           "file": "pnpm-lock.yaml",
-          "line": 2320,
+          "line": 2323,
           "via": "config-string",
           "symbols": ["@types/node"]
         }
@@ -692,25 +749,25 @@
         },
         {
           "file": "pnpm-lock.yaml",
-          "line": 62,
+          "line": 65,
           "via": "config-string",
           "symbols": ["@vitest/coverage-v8"]
         },
         {
           "file": "pnpm-lock.yaml",
-          "line": 2357,
+          "line": 2360,
           "via": "config-string",
           "symbols": ["@vitest/coverage-v8"]
         },
         {
           "file": "pnpm-lock.yaml",
-          "line": 2377,
+          "line": 2380,
           "via": "config-string",
           "symbols": ["@vitest/coverage-v8"]
         },
         {
           "file": "pnpm-lock.yaml",
-          "line": 4249,
+          "line": 4252,
           "via": "config-string",
           "symbols": ["@vitest/coverage-v8"]
         },
@@ -848,7 +905,7 @@
         },
         {
           "file": "scripts/dependency-report.test.mjs",
-          "line": 235,
+          "line": 238,
           "via": "require-resolve",
           "symbols": []
         }
@@ -904,8 +961,14 @@
         "node": ">=14.17"
       },
       "peerDependencies": null,
-      "useSiteCount": 2,
+      "useSiteCount": 3,
       "useSites": [
+        {
+          "file": "package.json",
+          "line": 22,
+          "via": "script",
+          "symbols": ["typecheck"]
+        },
         {
           "file": "package.json",
           "line": 26,
@@ -982,8 +1045,14 @@
         "@vitest/coverage-istanbul": "4.1.11",
         "@vitest/ui": "4.1.11"
       },
-      "useSiteCount": 9,
+      "useSiteCount": 10,
       "useSites": [
+        {
+          "file": "netlify/functions/collect.test.ts",
+          "line": 17,
+          "via": "import",
+          "symbols": ["afterEach", "beforeEach", "describe", "expect", "it", "vi"]
+        },
         {
           "file": "package.json",
           "line": 26,

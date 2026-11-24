@@ -60,6 +60,7 @@ New ADRs are created from [`template.md`](template.md); see `../process/contribu
 | 0050 | Undo of a column repair is an exact refold at the history cursor                                                      |
 | 0051 | Column-repair composition is stacked projection layers of linear emitted size, and predicate sites use set-membership |
 | 0052 | Cancel is an out-of-band query-lane op that settles the parked op as a typed `cancelled` outcome                      |
+| 0053 | Collector Hosted on Netlify Functions                                                                                 |
 
 ## Proposed
 
