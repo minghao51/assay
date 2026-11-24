@@ -1,10 +1,12 @@
 # Telemetry Collector — Operator Contract
 
-**Status:** operator-facing contract (t-3, 2026-09-29). The **client** is shipped in
-`@assay/telemetry` (t-1: typed schema, sampling, endpoint gate) and wired into the web app and
-CLI (t-2: emission, disclosure, opt-out). The **collector service itself is out of this
-repository** ([design](06-telemetry-design.md) OQ5 default: no server-side delete endpoint in
-v1) — this note is what a maintainer deploys and operates against. It is derived from
+**Status:** operator-facing contract (t-3, 2026-09-29; reference deployment added 2026-11-24). The
+**client** is shipped in `@assay/telemetry` (t-1: typed schema, sampling, endpoint gate) and wired into
+the web app and CLI (t-2: emission, disclosure, opt-out). The **collector service** is specified by this
+contract and, since 2026-11-24, has a reference deployment in this repository (§5: one Netlify
+Function, adopted by [ADR 0053](../adr/0053-collector-hosted-on-netlify-functions.md)) — that deployment
+is **not deployed yet** and this contract is still what a maintainer deploys and operates against
+([design](06-telemetry-design.md) OQ5 default: no server-side delete endpoint in v1). It is derived from
 [`docs/engineering/06-telemetry-design.md`](06-telemetry-design.md) (§8–§10, Appendix B/C) and
 [ADR 0045](../adr/0045-telemetry-design-adopted.md); the design doc wins on conflict.
 
@@ -107,15 +109,44 @@ Minimum contract ([§10](06-telemetry-design.md)):
 - **No third-party endpoints/SDKs** — the only egress destination is the configured self-hosted
   collector ([§7 R12](06-telemetry-design.md)).
 - **Deployment is a maintainer/G0 tail item** (operator responsibilities: deployment, retention
-  enforcement, the public disclosure surface). This repository ships the client + this contract,
-  not the service.
+  enforcement, the public disclosure surface). This repository now ships a _reference deployment_ of
+  the collector function (§5) — validation only, no storage — but deploying it, and enforcing the
+  retention this contract requires, remain operator work.
 - **Verification checklist before going live:** (1) endpoint reachable only over https (or
   loopback http for local dev); (2) ingest token accepted as `Authorization: Bearer …` and never
   logged; (3) a batch with an extra free-form field stores no extra field; (4) `pipeline_run` and
   unknown majors are rejected without body logging; (5) raw-event disposal at 90 days and log
   rotation at 14 days are actually scheduled; (6) no IPs land in any store or log.
 
-## 5. Cross-references
+## 5. Reference deployment (Netlify Functions)
+
+The host was adopted on 2026-11-24 ([ADR 0053](../adr/0053-collector-hosted-on-netlify-functions.md)):
+the collector is a **server endpoint**, so a static host could not work, and one Netlify Function is the
+smallest thing that receives the §2 request.
+
+| Artifact        | Path                                                                                       | Role                                                                                                                                |
+| --------------- | ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Function        | [`netlify/functions/collect.ts`](../../netlify/functions/collect.ts)                       | §2 acceptance: `POST` only, `OPTIONS` preflight, closed value-free reason codes, strict allowlist validation via `@assay/telemetry` |
+| Site config     | [`netlify.toml`](../../netlify.toml)                                                       | functions directory, `no-store` header, the endpoint-variable relationship                                                          |
+| Deploy workflow | [`.github/workflows/netlify-collector.yml`](../../.github/workflows/netlify-collector.yml) | typecheck/lint/test on every PR and push; deploy from `main` when `netlify/**` or the workflow changes, plus `workflow_dispatch`    |
+| Tests           | [`netlify/functions/collect.test.ts`](../../netlify/functions/collect.test.ts)             | acceptance, every refusal category, both batch boundaries, CORS, totality, and value-free logs                                      |
+
+- **Endpoint.** `https://<site>/.netlify/functions/collect`, supplied to the app build as
+  `ASSAY_TELEMETRY_ENDPOINT` (§1). Nothing else configures it, so a stock build stays inert; deploy the
+  function first, then build the app with that site's URL.
+- **Caps.** §2's client bounds are the server's bounds: 32 events, and 256 KiB of events plus a 1 KiB
+  array-framing allowance, refused with `400` / `413` before parsing begins.
+- **CORS.** Same-origin by default (the site serves the function, so no header is needed); a
+  cross-origin caller must be opted into with `ASSAY_TELEMETRY_ALLOWED_ORIGINS`. `*` is never sent.
+- **What it does not do.** No storage, no forwarding, no retention job, no rate limiter, no ingest-token
+  check: the function validates and discards. §3's retention table and §4's rate limiting therefore
+  remain operator work before this endpoint is an analytics source.
+- **Status: not deployed.** Remote GitHub Actions is billing-blocked (R-20), so the workflow is
+  **unexercised** — no function is deployed and nothing is collected. Creating the Netlify site, adding
+  the `NETLIFY_AUTH_TOKEN` / `NETLIFY_SITE_ID` secrets and running the workflow are the remaining human
+  step ([successor queue §15.2](../process/handoff/20261121-successor-queue.md)).
+
+## 6. Cross-references
 
 - [Telemetry design](06-telemetry-design.md) — §2 event inventory, §3 typed schema, §5 sampling,
   §6 opt-out, §7 red lines, §8 endpoint/transport, §9 versioning, §10 retention, Appendices A–C.

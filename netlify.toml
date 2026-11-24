@@ -1,0 +1,40 @@
+# Netlify deployment for the Assay telemetry collector (ADR 0053; operator
+# contract docs/engineering/07-telemetry-collector.md §5).
+#
+# This site exists to host exactly ONE function —
+# `POST /.netlify/functions/collect` (netlify/functions/collect.ts). It is NOT
+# the Assay web app: the app is built and served elsewhere.
+#
+# ## Where the deployed URL goes
+#
+# The only link between the two is a single build-time variable, set when the
+# app is built (apps/web/vite.config.ts inlines it, and the stock build — with
+# it unset — stays inert):
+#
+#   ASSAY_TELEMETRY_ENDPOINT=https://<site>/.netlify/functions/collect
+#
+# Optional companion: `ASSAY_TELEMETRY_TOKEN` (sent as `authorization: Bearer`;
+# the contract calls it a write-only ingest token — this reference deployment
+# does not check it, so do not treat it as authentication yet). Nothing else
+# configures the endpoint: no default URL is baked into the source, and the
+# public disclosure copy (docs/telemetry-disclosure.md) plus the endpoint-free
+# build both key off this same variable. Do not add a second way to set it.
+#
+# Reverse direction: the deployed function's URL is derived from the site name,
+# so the variable must be set to *that* site's URL. Deploy first, then build the
+# app with it. A typo on either side is silent — the app sends nothing, and the
+# function receives nothing.
+
+[build]
+  # No build command: Netlify bundles the TypeScript function itself and
+  # `netlify/publish` is a checked-in placeholder, so the deploy step never
+  # needs the monorepo's build graph.
+  publish = "netlify/publish"
+  functions = "netlify/functions"
+
+# Nothing the collector returns may be cached: a cached 202/4xx would hide a
+# refusal from the client that must drop the batch.
+[[headers]]
+  for = "/.netlify/functions/collect"
+  [headers.values]
+    Cache-Control = "no-store"

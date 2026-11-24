@@ -1,0 +1,142 @@
+# Assay telemetry collector — validate always, deploy the Netlify function from
+# `main` (ADR 0053; operator contract docs/engineering/07-telemetry-collector.md
+# §5; successor queue §15.2).
+#
+# STATUS 2026-11-24 — UNEXERCISED. GitHub Actions is billing-blocked (R-20: four
+# job-start refusals with `steps=0` on run 44887930938), so no job in this file
+# has ever run remotely and no deploy has ever happened. It is written to be
+# correct and its commands pass locally in this tree; treat any future green run
+# as the first evidence, not as a re-run of something known-good.
+#
+# The cheap half runs on every PR and every push with no path filter, so the
+# collector cannot rot unnoticed: typecheck, lint and the unit suite. The deploy
+# half runs only on `main` when `netlify/**` or this file changed, or when
+# dispatched by hand.
+name: Telemetry collector (Netlify Functions)
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Least privilege: reading the repository is all either job needs. Deployment
+# authenticates with repository secrets, never with the GITHUB_TOKEN.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: typecheck / lint / test the collector
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # The same command the repo gate runs (`pnpm typecheck` ends with it): the
+      # root tsconfig includes `netlify/functions/**`, so the function and its
+      # test are typechecked against the real `@assay/telemetry` schema.
+      - name: Typecheck the collector
+        run: pnpm exec tsc --noEmit -p tsconfig.json
+
+      - name: Lint the collector
+        run: pnpm exec eslint netlify
+
+      - name: Unit-test the collector
+        run: pnpm exec vitest run --project node netlify
+
+  deploy:
+    name: deploy collector (a missing secret is a failure, not a pass)
+    needs: validate
+    # Push-to-main only (plus manual dispatch): a PR never deploys.
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Full history: the relevance check below diffs the pushed range.
+          fetch-depth: 0
+
+      # Deploy when `netlify/**` or this workflow changed. Anything it cannot
+      # prove irrelevant (a forced push, an unknown base) counts as relevant —
+      # an unnecessary deploy is harmless, a skipped one hides a change.
+      - name: Decide whether this push needs a deploy
+        id: relevance
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] || [ -z "$BEFORE" ] || \
+             [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if changed="$(git diff --name-only "$BEFORE" HEAD -- netlify .github/workflows/netlify-collector.yml)"; then
+            if [ -n "$changed" ]; then
+              echo "deploy=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "deploy=false" >> "$GITHUB_OUTPUT"
+              echo "::notice title=Collector deploy skipped::this push changed nothing under netlify/ or this workflow"
+            fi
+          else
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Collector deploy relevance unknown::could not diff $BEFORE..HEAD; deploying to be safe"
+          fi
+
+      # Secrets are unavailable to a job-level `if`, so they are checked here.
+      # The unconfigured case FAILS deliberately. A skipped deploy step under a
+      # green job is indistinguishable at a glance from a real deploy, and the
+      # whole point of this workflow is that "the collector exists" must never
+      # be assumed: a red job named "deploy collector" cannot be misread. The
+      # message and the job summary carry no secret and no endpoint — only
+      # whether the two named secrets exist.
+      - name: Deploy the collector function
+        if: steps.relevance.outputs.deploy == 'true'
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+        run: |
+          if [ -z "$NETLIFY_AUTH_TOKEN" ] || [ -z "$NETLIFY_SITE_ID" ]; then
+            {
+              echo "## Collector NOT deployed"
+              echo
+              echo "This job had a deploy to do, but \`NETLIFY_AUTH_TOKEN\` and/or"
+              echo "\`NETLIFY_SITE_ID\` are not configured as repository secrets."
+              echo
+              echo "**No deployment happened.** Create the Netlify site for the collector,"
+              echo "add both secrets, then re-run this workflow. Deployment is also"
+              echo "unexercised while GitHub Actions is billing-blocked (R-20)."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error title=Collector NOT deployed::NETLIFY_AUTH_TOKEN / NETLIFY_SITE_ID are not configured; nothing was deployed."
+            exit 1
+          fi
+          # `netlify.toml` declares the functions directory and the (empty)
+          # publish directory, so no flags are needed. The CLI also prints the
+          # deployed function URL — that URL, plus `/.netlify/functions/collect`,
+          # is what the app build gets as ASSAY_TELEMETRY_ENDPOINT.
+          #
+          # Version deliberately not pinned yet: this step has never run (R-20),
+          # so a pin would be an invented fact. Pin the version the first run
+          # actually uses, in the same commit that records that run.
+          npx --yes netlify-cli@latest deploy --prod --message "assay collector ${GITHUB_SHA}"
