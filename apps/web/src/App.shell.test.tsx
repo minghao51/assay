@@ -578,3 +578,74 @@ describe('q-15 — workbench two-pane shell', () => {
     expect(screen.getByRole('button', { name: 'Collapse workbench pane' })).toBe(toggle)
   })
 })
+
+/**
+ * WF-03 subpart 1 (WFD-05 selection §1, 2026-11-23) — the guide's ONE opener
+ * moved out of the open-flow line and into the header cluster, beside the
+ * Settings opener. What this block pins, and nothing else:
+ *
+ * 1. exactly one opener in `idle` and in `ready`, a direct child of the
+ *    cluster that also holds the Settings opener (the move itself), with no
+ *    second "Help" button anywhere for any breakpoint;
+ * 2. the open-flow control line no longer contains it — the ready stack's line
+ *    box is the Open control's alone, which is what keeps the ≤140px
+ *    ready-workspace top a measured (not assumed) fact;
+ * 3. the unchanged guard (`helpBlocked || intent.kind !== 'none'`) and the
+ *    unchanged focus return onto the moved control.
+ */
+describe('WF-03 subpart 1 — the guide opener lives in the header cluster', () => {
+  it('renders exactly one opener in idle and in ready, beside the Settings opener', async () => {
+    render(<App />)
+    const cluster = screen.getByTestId('header-controls')
+    expect(screen.getByTestId('open-status').getAttribute('data-phase')).toBe('idle')
+
+    const idleOpeners = screen.getAllByTestId('help-open')
+    expect(idleOpeners).toHaveLength(1)
+    expect(idleOpeners[0]?.parentElement).toBe(cluster)
+    expect(cluster.contains(screen.getByTestId('settings-toggle'))).toBe(true)
+    // One Help control, no responsive duplicate at any breakpoint.
+    expect(screen.getAllByRole('button', { name: 'Help' })).toHaveLength(1)
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('open-button'))
+    })
+    await screen.findByTestId('schema-section')
+
+    const readyOpeners = screen.getAllByTestId('help-open')
+    expect(readyOpeners).toHaveLength(1)
+    expect(readyOpeners[0]?.parentElement).toBe(cluster)
+    expect(screen.getAllByRole('button', { name: 'Help' })).toHaveLength(1)
+    // The moved control is no longer part of the ready stack's control line.
+    expect(screen.getByTestId('open-flow').querySelector('[data-testid="help-open"]')).toBeNull()
+  })
+
+  it('keeps the modal guard and returns focus to the moved opener on close', async () => {
+    await open()
+    const opener = screen.getByTestId('help-open')
+
+    // Guard: while a different surface owns the modal the opener is disabled.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('settings-toggle'))
+    })
+    expect(screen.getByTestId('settings-dialog')).toBeTruthy()
+    expect((screen.getByTestId('help-open') as HTMLButtonElement).disabled).toBe(true)
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('settings-close'))
+    })
+    expect((screen.getByTestId('help-open') as HTMLButtonElement).disabled).toBe(false)
+
+    // Focus return: both close paths land back on the opener, wherever it sits.
+    opener.focus()
+    fireEvent.click(opener)
+    expect(screen.queryByTestId('workbench-help')).toBeTruthy()
+    fireEvent(screen.getByTestId('workbench-help'), new Event('cancel', { cancelable: true }))
+    expect(screen.queryByTestId('workbench-help')).toBeNull()
+    expect(document.activeElement).toBe(screen.getByTestId('help-open'))
+
+    opener.focus()
+    fireEvent.click(opener)
+    fireEvent.click(screen.getByTestId('help-close'))
+    expect(screen.queryByTestId('workbench-help')).toBeNull()
+    expect(document.activeElement).toBe(screen.getByTestId('help-open'))
+  })
+})
