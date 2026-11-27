@@ -124,12 +124,14 @@ The host was adopted on 2026-11-24 ([ADR 0053](../adr/0053-collector-hosted-on-n
 the collector is a **server endpoint**, so a static host could not work, and one Netlify Function is the
 smallest thing that receives the §2 request.
 
-| Artifact        | Path                                                                                       | Role                                                                                                                                |
-| --------------- | ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
-| Function        | [`netlify/functions/collect.ts`](../../netlify/functions/collect.ts)                       | §2 acceptance: `POST` only, `OPTIONS` preflight, closed value-free reason codes, strict allowlist validation via `@assay/telemetry` |
-| Site config     | [`netlify.toml`](../../netlify.toml)                                                       | functions directory, `no-store` header, the endpoint-variable relationship                                                          |
-| Deploy workflow | [`.github/workflows/netlify-collector.yml`](../../.github/workflows/netlify-collector.yml) | typecheck/lint/test on every PR and push; deploy from `main` when `netlify/**` or the workflow changes, plus `workflow_dispatch`    |
-| Tests           | [`netlify/functions/collect.test.ts`](../../netlify/functions/collect.test.ts)             | acceptance, every refusal category, both batch boundaries, CORS, totality, and value-free logs                                      |
+| Artifact             | Path                                                                                        | Role                                                                                                                                                                                                                                                                                                                    |
+| -------------------- | ------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Function (source)    | [`netlify/functions/collect.ts`](../../netlify/functions/collect.ts)                        | §2 acceptance: `POST` only, `OPTIONS` preflight, closed value-free reason codes, strict allowlist validation via `@assay/telemetry`                                                                                                                                                                                     |
+| Function (deployed)  | [`netlify/dist/collect.mjs`](../../scripts/build-collector.mjs)                             | The single self-contained file `pnpm collector:build` writes and Netlify ships: `@assay/telemetry` **inlined, never copied**. A **v2** function forces Netlify's `nft` tracer (which leaves the workspace specifier external and ships a 502) — see the workflow header and `netlify/netlify.toml` before changing this |
+| Site config          | [`netlify.toml`](../../netlify.toml) · [`netlify/netlify.toml`](../../netlify/netlify.toml) | functions directory, `no-store` header, the endpoint-variable relationship. Both files describe the same site at two base directories; keep them parallel                                                                                                                                                               |
+| Deploy workflow      | [`.github/workflows/netlify-collector.yml`](../../.github/workflows/netlify-collector.yml)  | typecheck/lint/test on every PR and push; deploy from `main` when `netlify/**`, the build/reader scripts or the workflow change, plus `workflow_dispatch`. The live `--probe` — not the deploy step's exit status — is the acceptance                                                                                   |
+| Deploy-result reader | [`scripts/netlify-deploy-url.mjs`](../../scripts/netlify-deploy-url.mjs)                    | reads the URL out of `netlify deploy --json` output (PRETTY-PRINTED multi-line JSON) so the probe can run; refuses loudly instead of yielding an empty URL                                                                                                                                                              |
+| Tests                | [`netlify/functions/collect.test.ts`](../../netlify/functions/collect.test.ts)              | acceptance, every refusal category, both batch boundaries, CORS, totality, and value-free logs; [`scripts/build-collector.test.mjs`](../../scripts/build-collector.test.mjs) pins the probe-endpoint plumbing                                                                                                           |
 
 - **Endpoint.** `https://<site>/.netlify/functions/collect`, supplied to the app build as
   `ASSAY_TELEMETRY_ENDPOINT` (§1). Nothing else configures it, so a stock build stays inert; deploy the
@@ -149,10 +151,25 @@ smallest thing that receives the §2 request.
 - **What it does not do.** No storage, no forwarding, no retention job, no rate limiter: the function
   validates and discards. §3's retention table and §4's rate limiting therefore remain operator work
   before this endpoint is an analytics source.
-- **Status: not deployed.** Remote GitHub Actions is billing-blocked (R-20), so the workflow is
-  **unexercised** — no function is deployed and nothing is collected. Creating the Netlify site, adding
-  the `NETLIFY_AUTH_TOKEN` / `NETLIFY_SITE_ID` secrets and running the workflow are the remaining human
-  step ([successor queue §15.2](../process/handoff/20261121-successor-queue.md)).
+- **Status (2026-11-27): the workflow deploys; production does not currently serve the function.**
+  Remote CI is live again (the repository is public, so R-20 lapsed), and run `45992312947` uploaded a
+  deploy whose function answers the **whole §2 contract over HTTP — 8/8 probes green**, measured
+  2026-11-27 against that deploy's own URL. What is **not** true is that the documented endpoint works:
+  `https://assay-dataworkbench.netlify.app/.netlify/functions/collect` answers **404** to `GET`,
+  `OPTIONS` and `POST`. The published deploy is a Netlify **Git-integration** build of `main`, not the
+  workflow's upload: the site is connected to the repository, its build settings declare no command,
+  and `netlify/dist/` is git-ignored — so a Git build ships the placeholder `publish` directory and an
+  empty functions directory, and it replaces the workflow's deploy on the next push. Two decisions are
+  open (successor queue §15.2): give the Git build a command that produces `dist` **and fails when it is
+  empty**, or disconnect the Git integration so only the workflow deploys; and whether the workflow
+  should verify the canonical URL on every push to `main` rather than only when it deploys. Nothing is
+  collected today, so the public [disclosure](../telemetry-disclosure.md) stays accurate.
+- **The acceptance tool was itself broken until 2026-11-27.** `--probe <url>` addressed
+  `https://collector.example.invalid/…` (a hardcoded placeholder) and never dialled the URL it was given,
+  so every live probe reported 8/8 `fetch failed` regardless of the deployment's health; and the step's
+  URL reader assumed compact one-line JSON, so the probe was skipped entirely after a successful deploy.
+  Both are fixed and pinned by tests; a wrong probe target now names itself instead of looking like an
+  unhealthy endpoint.
 
 ## 6. Cross-references
 

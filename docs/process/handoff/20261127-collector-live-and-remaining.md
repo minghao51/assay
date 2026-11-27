@@ -37,26 +37,61 @@ the host; the ingest token is checked when `ASSAY_TELEMETRY_INGEST_TOKEN` is set
 
 ## 2. What is NOT finished — do this first
 
-### 2.1 The workflow reports failure after a successful deploy (one bug)
+### 2.1 The workflow reports failure after a successful deploy (one bug — **fixed 2026-11-27**, cause corrected)
 
 Run **`45992312947`**: validate **success**; deploy job **failure** — but the deploy itself succeeded
 (`"deploy_id": "6b096c5af962b72365863a5a"`, `"url": "https://assay-dataworkbench.netlify.app"` in the
 log). The failing step is the workflow's own URL parse, which emits
 `::error title=Collector deploy URL unknown::the CLI printed no site URL; the probe step cannot run.`
-The CLI _did_ print it; the parser expects a different key/shape. Fix in
-`.github/workflows/netlify-collector.yml`: read `url` from the `--json` deploy output (it is a flat
-top-level `"url"` in the object the step already captures), then let the existing `--probe` step run.
-**Acceptance is the probe step passing**, not the job turning green — a green job with a skipped probe
-is the failure mode this file exists to prevent.
 
-### 2.2 Three docs still describe the old state
+**The cause was the SHAPE, not the key.** `url` _is_ a flat top-level key. `netlify deploy --json` prints
+**pretty-printed multi-line** JSON, and the step extracted the payload with `grep -a '^{' | tail -n 1`,
+which only matches compact one-line JSON — so it captured the lone opening brace, `jq` refused it, and
+the step failed after a deploy that had worked. Fixed by `scripts/netlify-deploy-url.mjs` (a balanced,
+string-aware JSON-object reader; tested against this run's exact log shape in
+`scripts/netlify-deploy-url.test.mjs`) plus split stdout/stderr, which also makes the deploy's own exit
+status real instead of `tee`'s. **Acceptance is the probe step passing**, and the probe itself was broken
+— see §2.4.
 
-`docs/engineering/07-telemetry-collector.md` §5 (its artefact table still says
+### 2.2 Two further defects found while fixing 2.1 — one is a live outage
+
+**`--probe` never dialled the URL it was given.** `defineProbes` addressed every request to a hardcoded
+`https://collector.example.invalid/…` and `probeLive` handed `fetch` straight through, so the operator's
+URL was only printed. Consequence: the acceptance tool reported **8/8 `fetch failed` against any
+endpoint**, healthy or not, and had never verified a live deployment since it was written. Fixed (the
+endpoint is a required parameter; `guardTarget` refuses a mismatched target by name) and pinned by
+`scripts/build-collector.test.mjs`. Verified both ways on 2026-11-27: **8/8 green** against the deploy
+that received the bundle; `expected 202, got 404` against production.
+
+**Production serves no function (404 on `GET`/`OPTIONS`/`POST`).** The bundle is fine — the deploy
+`6b096c5a…` from 11:41Z answers the whole contract on its own URL. But the site is connected to the
+repository through Netlify's **Git integration**, its build settings declare **no command**, and
+`netlify/dist/` is git-ignored, so each push to `main` publishes the placeholder `publish` directory
+with an **empty functions directory** and replaces the workflow's deploy. Measured from the public site
+API + HTTP on 2026-11-27:
+
+| Deploy                              | Origin              | Built from | Function on `/.netlify/functions/collect` |
+| ----------------------------------- | ------------------- | ---------- | ----------------------------------------- |
+| `6b096c5a…` (11:41Z)                | workflow CLI upload | —          | **405/202 — 8/8 contract probes green**   |
+| `6b09795d…` (12:36Z)                | Git build           | `fb0dfe7`  | 404                                       |
+| `6b097d60…` (12:53Z, **published**) | Git build           | `3bbf12c`  | 404                                       |
+
+So the handoff's "deployed and verified live" was true of the CLI deploy for 72 minutes and was undone by
+the next push. **Open decision (maintainer):** (a) give the Git build a command that produces `dist` and
+fails when it is empty — `netlify.toml` already says a Git build "must fail rather than deploy an empty
+functions directory" — or (b) disconnect the Git integration for this site so only the workflow deploys;
+and (c) whether the workflow should verify the canonical URL on **every** push to `main` (a separate job),
+not only when it deploys, since Git builds can change production whenever it does not.
+
+### 2.3 Three docs described the old state (**corrected 2026-11-27**)
+
+`docs/engineering/07-telemetry-collector.md` §5 (its artefact table still said
 `netlify/functions/collect.ts` is deployed — it is `netlify/dist/collect.mjs`), the successor queue
-§15.2 ("unexercised"), and the workflow header comment. State: deployed, verified by probe, and the
-v2/nft constraint above.
+§15.2 ("unexercised"), and the workflow header comment. All three now state what §2.1–§2.2 measured:
+shipped and probe-proven, but **not currently served from the canonical URL**, plus the v2/nft and
+`base = "netlify"` constraints.
 
-### 2.3 Usability pass + screenshots on the **hosted** app — not possible yet, and here is why
+### 2.4 Usability pass + screenshots on the **hosted** app — not possible yet, and here is why
 
 The Netlify project serves **only the collector**; its `publish` is `netlify/publish`, a checked-in
 placeholder — **the web app is not hosted anywhere**. So "explore the hosted app" needs one decision
@@ -91,20 +126,20 @@ implemented), R-7 (item 3 escalated: does it widen the `DataEngine` target?). **
 commissioned:** R-4 (WFD-04 = A commissions the WF-08 study; no runtime authority). **Withdrawn:**
 R-22 (no Node 22 consumer by construction).
 
-| Remaining                         | What it needs                                                                                                                                                             | Who                          |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
-| **R-14** bounded replacement wait | Four product selections: which waits are bounded, the deadline, the unavailable state + copy, recovery semantics. The cancel op now exists, so "op shipped" is satisfied. | You decide, then a dispatch  |
-| **R-4** WF-08 study               | Commission it: both schemes × 1024×700/1440×900/1920×1080 + 900px fallback + 200% zoom, fixed synthetic cases. Ships nothing.                                             | A dispatch, once you want it |
-| **R-7** overlay profile           | Item 3 needs an architect ruling (does it cross package boundaries?). Contract is drafted.                                                                                | You/architect                |
-| **R-5** temporal parity           | Nothing blocking; a dispatch per the contract.                                                                                                                            | A dispatch                   |
-| **R-11** budgets                  | Adopt/reject the five candidates; decide whether `webview-script` carries test-only bytes.                                                                                | You                          |
-| **R-16** npm `@assay` scope       | Create the org, 2FA. Then R-15's publish gate (green gates + changeset) is the only bar.                                                                                  | You (credentials)            |
-| **R-17** trademark/domain         | Legal clearance; **now more urgent** because the repo is public.                                                                                                          | You (legal)                  |
-| **R-19** demo dataset             | Ruling taken: **generate it, do not source it** (successor queue §15.4). Generate the seeded fixture set.                                                                 | A dispatch                   |
-| **R-21** RD-T07 study             | Recruit and run sessions; protocol + fixtures can be prepared.                                                                                                            | You (people)                 |
-| **R-18** collector hosting        | **Done** — Netlify Functions, live. Remaining: set `ASSAY_TELEMETRY_ENDPOINT` on the app build, optionally the ingest token on the site.                                  | Config, minutes              |
-| **R-15** publication              | Gate is our own green gates (successor queue §15.3); the policy document is dropped as over-engineering.                                                                  | After R-16                   |
-| **R-20** Actions billing          | **Resolved by the repo going public.** Keep an eye on spending if private runners are ever used.                                                                          | —                            |
+| Remaining                         | What it needs                                                                                                                                                                                                                                                                                                                                        | Who                          |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
+| **R-14** bounded replacement wait | Four product selections: which waits are bounded, the deadline, the unavailable state + copy, recovery semantics. The cancel op now exists, so "op shipped" is satisfied.                                                                                                                                                                            | You decide, then a dispatch  |
+| **R-4** WF-08 study               | Commission it: both schemes × 1024×700/1440×900/1920×1080 + 900px fallback + 200% zoom, fixed synthetic cases. Ships nothing.                                                                                                                                                                                                                        | A dispatch, once you want it |
+| **R-7** overlay profile           | Item 3 needs an architect ruling (does it cross package boundaries?). Contract is drafted.                                                                                                                                                                                                                                                           | You/architect                |
+| **R-5** temporal parity           | Nothing blocking; a dispatch per the contract.                                                                                                                                                                                                                                                                                                       | A dispatch                   |
+| **R-11** budgets                  | Adopt/reject the five candidates; decide whether `webview-script` carries test-only bytes.                                                                                                                                                                                                                                                           | You                          |
+| **R-16** npm `@assay` scope       | Create the org, 2FA. Then R-15's publish gate (green gates + changeset) is the only bar.                                                                                                                                                                                                                                                             | You (credentials)            |
+| **R-17** trademark/domain         | Legal clearance; **now more urgent** because the repo is public.                                                                                                                                                                                                                                                                                     | You (legal)                  |
+| **R-19** demo dataset             | Ruling taken: **generate it, do not source it** (successor queue §15.4). Generate the seeded fixture set.                                                                                                                                                                                                                                            | A dispatch                   |
+| **R-21** RD-T07 study             | Recruit and run sessions; protocol + fixtures can be prepared.                                                                                                                                                                                                                                                                                       | You (people)                 |
+| **R-18** collector hosting        | **Deployed, but production serves no function.** Workflow upload verified 8/8 live; superseded by Git-integration builds of `main` that ship no function (§2.4). Two decisions: Git-build command **or** disconnect the Git integration; and whether to probe the canonical URL on every push. Then set `ASSAY_TELEMETRY_ENDPOINT` on the app build. | You decide, then config      |
+| **R-15** publication              | Gate is our own green gates (successor queue §15.3); the policy document is dropped as over-engineering.                                                                                                                                                                                                                                             | After R-16                   |
+| **R-20** Actions billing          | **Resolved by the repo going public.** Keep an eye on spending if private runners are ever used.                                                                                                                                                                                                                                                     | —                            |
 
 **Still unwritten, both real:** `dependency-report --check` cannot see engine-string drift (how 12
 workspaces kept claiming `>=22` through C4); and `packages/engine-duckdb/dist` (+19k B) is in no

@@ -708,6 +708,29 @@ which is public in a browser and is a spam filter, not authentication. The place
 enumerated in [`.env.example`](../../../.env.example); no real value belongs in a committed file.
 Deployment remains unexercised while GitHub Actions is billing-blocked (R-20).
 
+**Amended 2026-11-27 — the collector ships, and what "deployed" does not mean.** Actions lapsed with
+R-20 (public repositories get free standard-runner minutes), so the workflow runs: run `45992312947`
+uploaded a deploy whose function answers the whole contract over HTTP (8/8 `--probe` green, measured that
+day), and the artefact is `netlify/dist/collect.mjs` — **not** `netlify/functions/collect.ts`, which is
+the reviewed source. Three things did not work and are now either fixed or decided, recorded here so a
+later reader does not rediscover them:
+
+1. **The URL reader** assumed compact one-line JSON; `netlify deploy --json` prints pretty-printed
+   multi-line JSON, so the step captured a bare `{` and failed with "the CLI printed no site URL" _after_
+   a successful deploy, skipping the probe. Fixed: `scripts/netlify-deploy-url.mjs`, tested against that
+   run's exact log shape.
+2. **`--probe` never dialled the URL it was given** — it addressed a hardcoded
+   `https://collector.example.invalid/…`, so 8/8 `fetch failed` was reported for any endpoint, healthy or
+   not. Fixed and pinned by `scripts/build-collector.test.mjs`; a wrong target now names both URLs.
+3. **Production does not currently serve the function.** The site is connected to the repository (Git
+   integration), its build settings declare **no command**, and `netlify/dist/` is git-ignored — so each
+   push to `main` publishes the placeholder `publish` directory with an empty functions directory and
+   **replaces the workflow's deploy**. Measured 2026-11-27: the published deploy was a Git build of
+   `3bbf12c` answering **404** on the function path, while the workflow's earlier upload answered 405/202
+   on its own deploy URL. **Open decision (maintainer):** give the Git build a command that produces
+   `dist` and fails when it is empty, or disconnect the Git integration so only the workflow deploys;
+   plus whether to verify the canonical URL on every push to `main` rather than only when deploying.
+
 Why a server runtime was needed at all, and the options that were weighed (kept as the record of the
 choice):
 
