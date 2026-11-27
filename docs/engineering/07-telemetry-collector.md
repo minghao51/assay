@@ -138,9 +138,17 @@ smallest thing that receives the §2 request.
   array-framing allowance, refused with `400` / `413` before parsing begins.
 - **CORS.** Same-origin by default (the site serves the function, so no header is needed); a
   cross-origin caller must be opted into with `ASSAY_TELEMETRY_ALLOWED_ORIGINS`. `*` is never sent.
-- **What it does not do.** No storage, no forwarding, no retention job, no rate limiter, no ingest-token
-  check: the function validates and discards. §3's retention table and §4's rate limiting therefore
-  remain operator work before this endpoint is an analytics source.
+- **Ingest token: checked when configured, and still not authentication.** If the Netlify site
+  environment variable `ASSAY_TELEMETRY_INGEST_TOKEN` is set, the function requires
+  `authorization: Bearer <token>` to match it (timing-safe comparison, refused with `401` and the
+  closed code `unauthorized`, `WWW-Authenticate: Bearer`, before the body is read). If it is unset
+  — the default — the endpoint stays open exactly as before. The token the app sends
+  (`ASSAY_TELEMETRY_TOKEN`) is compiled into the browser bundle, so it is **public**: this is a
+  **spam filter, not authentication**, and no security boundary may rest on it. Neither value is
+  logged or echoed.
+- **What it does not do.** No storage, no forwarding, no retention job, no rate limiter: the function
+  validates and discards. §3's retention table and §4's rate limiting therefore remain operator work
+  before this endpoint is an analytics source.
 - **Status: not deployed.** Remote GitHub Actions is billing-blocked (R-20), so the workflow is
   **unexercised** — no function is deployed and nothing is collected. Creating the Netlify site, adding
   the `NETLIFY_AUTH_TOKEN` / `NETLIFY_SITE_ID` secrets and running the workflow are the remaining human
