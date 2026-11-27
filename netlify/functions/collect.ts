@@ -22,6 +22,24 @@
  * and an `Allow` header. Refusals return a closed, value-free reason code and
  * never echo the request.
  *
+ * ## The ingest token is a spam filter, not authentication
+ *
+ * The client may send `authorization: Bearer <ASSAY_TELEMETRY_TOKEN>` (contract
+ * §2), and this function verifies it against the collector-side variable
+ * `ASSAY_TELEMETRY_INGEST_TOKEN` when that variable is configured. Be honest
+ * about what that buys: the token is shipped to every browser that loads the
+ * configured app, so it is **public** — anyone who opens devtools can read it.
+ * This check is therefore a **spam filter, not authentication**. It raises the
+ * cost of a naive scripted flood and nothing more; it is not a security
+ * boundary, and nothing a stranger must not reach may sit behind it. Neither
+ * value is ever logged or echoed, and the comparison is timing-safe.
+ *
+ * Unset (the default) leaves the endpoint open exactly as before, so an
+ * operator who has not configured a token does not silently break the site.
+ * Set, a request without a matching bearer token is refused with `401` and the
+ * closed code `unauthorized` **before the body is read**, so an unauthorised
+ * caller cannot spend this collector's parse budget.
+ *
  * ## What it does with an accepted batch: nothing
  *
  * Nothing is persisted, forwarded, queued or logged. This deployment is a
@@ -66,6 +84,7 @@
  * file does not control, so the failure path is caught here on purpose.
  */
 
+import { createHash, timingSafeEqual } from 'node:crypto'
 import {
   MAX_BATCH_BYTES,
   MAX_BATCH_EVENTS,
@@ -104,6 +123,13 @@ export const MAX_EVENTS_PER_REQUEST = MAX_BATCH_EVENTS
 export const ALLOWED_ORIGINS_ENV = 'ASSAY_TELEMETRY_ALLOWED_ORIGINS'
 
 /**
+ * The collector-side variable that enables the ingest-token spam filter. It is
+ * a Netlify site environment variable, never a repository secret: the matching
+ * client value ships in the browser bundle and is public.
+ */
+export const INGEST_TOKEN_ENV = 'ASSAY_TELEMETRY_INGEST_TOKEN'
+
+/**
  * The collector's own refusal categories. Closed, so a refusal can be logged
  * and returned without carrying anything from the request. `invalid-event`
  * additionally carries one of the schema validator's closed error codes.
@@ -115,6 +141,7 @@ export const COLLECTOR_REFUSALS = [
   'batch-too-large',
   'body-too-large',
   'unsupported-media-type',
+  'unauthorized',
   'invalid-event',
   'method-not-allowed',
   'unexpected-error',
@@ -146,6 +173,12 @@ async function handle(request: Request, origin: string | undefined): Promise<Res
   if (method === 'OPTIONS') return preflight(origin)
   if (method !== 'POST') {
     return refuse(405, 'method-not-allowed', origin, { allow: 'POST, OPTIONS' })
+  }
+
+  // Auth first: the body is not read, so an unauthorised caller cannot spend
+  // the collector's parse budget. Unset means unchecked — see the header.
+  if (!isAuthorized(request)) {
+    return refuse(401, 'unauthorized', origin, { 'www-authenticate': 'Bearer' })
   }
 
   if (!isJsonContentType(request.headers.get('content-type'))) {
@@ -256,6 +289,37 @@ function corsHeaders(origin: string | undefined): Record<string, string> {
   return isAllowedOrigin(origin)
     ? { 'access-control-allow-origin': origin, vary: 'origin' }
     : { vary: 'origin' }
+}
+
+/**
+ * The ingest-token gate. Unset (including an empty value) leaves the endpoint
+ * open, which is the deployed-or-not default and must not silently break it.
+ * Set requires the presented bearer token to match. The token is public in a
+ * browser, so this is a spam filter, not authentication (file header).
+ */
+function isAuthorized(request: Request): boolean {
+  const configured = process.env[INGEST_TOKEN_ENV] ?? ''
+  if (configured === '') return true
+  const presented = bearerToken(request.headers.get('authorization'))
+  return presented !== undefined && tokenMatches(presented, configured)
+}
+
+/** The presented bearer token, or `undefined` when absent or malformed. */
+function bearerToken(header: string | null): string | undefined {
+  if (header === null) return undefined
+  const match = /^bearer[ \t]+(\S+)$/i.exec(header.trim())
+  return match?.[1]
+}
+
+/**
+ * Timing-safe secret comparison. Both values are hashed to a fixed 32-byte
+ * width first, so `timingSafeEqual` always sees equal-length buffers: the
+ * comparison never short-circuits and never reveals the configured token's
+ * length through a length mismatch.
+ */
+function tokenMatches(presented: string, configured: string): boolean {
+  const digest = (value: string): Buffer => createHash('sha256').update(value, 'utf8').digest()
+  return timingSafeEqual(digest(presented), digest(configured))
 }
 
 /** Read the opt-in allowlist; empty (same-origin only) unless configured. */

@@ -25,6 +25,7 @@ import {
 } from '@assay/telemetry'
 import handler, {
   ALLOWED_ORIGINS_ENV,
+  INGEST_TOKEN_ENV,
   MAX_EVENTS_PER_REQUEST,
   MAX_REQUEST_BYTES,
   type CollectorRefusal,
@@ -347,6 +348,85 @@ describe('collector — method handling', () => {
     )
     expect(response.status).toBe(202)
     expect(response.headers.get('access-control-allow-origin')).toBeNull()
+  })
+})
+
+describe('collector — ingest token (a spam filter, not authentication)', () => {
+  const CONFIGURED = 'collector-configured-token-0123456789abcdef'
+
+  it('accepts a tokenless request when no ingest token is configured', async () => {
+    vi.stubEnv(INGEST_TOKEN_ENV, undefined)
+    expect((await handler(postRequest(JSON.stringify([validEvent()])))).status).toBe(202)
+  })
+
+  it('treats an empty ingest token as unconfigured (open, as deployed)', async () => {
+    vi.stubEnv(INGEST_TOKEN_ENV, '')
+    expect((await handler(postRequest(JSON.stringify([validEvent()])))).status).toBe(202)
+  })
+
+  it('refuses a missing bearer token with 401 unauthorized when configured', async () => {
+    vi.stubEnv(INGEST_TOKEN_ENV, CONFIGURED)
+    const response = await handler(postRequest(JSON.stringify([validEvent()])))
+    await expectRefusal(response, 401, 'unauthorized')
+    expect(response.headers.get('www-authenticate')).toBe('Bearer')
+  })
+
+  it('refuses a wrong bearer token with 401 unauthorized when configured', async () => {
+    vi.stubEnv(INGEST_TOKEN_ENV, CONFIGURED)
+    const response = await handler(
+      postRequest(JSON.stringify([validEvent()]), {
+        authorization: 'Bearer collector-wrong-token-fedcba9876543210',
+      }),
+    )
+    await expectRefusal(response, 401, 'unauthorized')
+  })
+
+  it('accepts the matching bearer token when configured', async () => {
+    vi.stubEnv(INGEST_TOKEN_ENV, CONFIGURED)
+    const response = await handler(
+      postRequest(JSON.stringify([validEvent()]), { authorization: `Bearer ${CONFIGURED}` }),
+    )
+    expect(response.status).toBe(202)
+    expect(await response.text()).toBe('{"ok":true}')
+  })
+
+  it('refuses auth before reading the body (an oversized body is not parsed)', async () => {
+    vi.stubEnv(INGEST_TOKEN_ENV, CONFIGURED)
+    const reader = { called: false }
+    const oversized = `[${'x'.repeat(MAX_REQUEST_BYTES)}]`
+    const stub = {
+      method: 'POST',
+      headers: new Headers({
+        'content-type': 'application/json',
+        'content-length': String(oversized.length),
+      }),
+      arrayBuffer: () => {
+        reader.called = true
+        return Promise.resolve(new TextEncoder().encode(oversized).buffer as ArrayBuffer)
+      },
+    } as unknown as Request
+    await expectRefusal(await handler(stub), 401, 'unauthorized')
+    expect(reader.called).toBe(false)
+  })
+
+  it('refuses auth before parsing (a malformed body without a token is unauthorized)', async () => {
+    vi.stubEnv(INGEST_TOKEN_ENV, CONFIGURED)
+    await expectRefusal(await handler(postRequest('{"not":"json"')), 401, 'unauthorized')
+  })
+
+  it('never echoes or logs the configured or the submitted token (ADR 0025)', async () => {
+    vi.stubEnv(INGEST_TOKEN_ENV, CONFIGURED)
+    const consoleCapture = captureConsole()
+    const submitted = 'submitted-token-canary-9f3a'
+    const response = await handler(
+      postRequest(JSON.stringify([validEvent()]), { authorization: `Bearer ${submitted}` }),
+    )
+    const text = await expectRefusal(response, 401, 'unauthorized')
+    const logged = consoleCapture.text()
+    for (const secret of [CONFIGURED, submitted]) {
+      expect(text, secret).not.toContain(secret)
+      expect(logged, secret).not.toContain(secret)
+    }
   })
 })
 

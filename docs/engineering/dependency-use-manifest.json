@@ -423,7 +423,7 @@
         },
         {
           "file": "netlify/functions/collect.ts",
-          "line": 69,
+          "line": 88,
           "via": "import",
           "symbols": ["MAX_BATCH_BYTES", "MAX_BATCH_EVENTS", "validateEvent", "ValidationErrorCode"]
         },
@@ -656,8 +656,14 @@
       "workspaceTarget": null,
       "engines": null,
       "peerDependencies": {},
-      "useSiteCount": 154,
+      "useSiteCount": 155,
       "useSites": [
+        {
+          "file": "netlify/functions/collect.ts",
+          "line": 87,
+          "via": "module-types",
+          "symbols": ["node:crypto"]
+        },
         {
           "file": "pnpm-lock.yaml",
           "line": 9,
@@ -709,12 +715,6 @@
         {
           "file": "pnpm-lock.yaml",
           "line": 2310,
-          "via": "config-string",
-          "symbols": ["@types/node"]
-        },
-        {
-          "file": "pnpm-lock.yaml",
-          "line": 2323,
           "via": "config-string",
           "symbols": ["@types/node"]
         }
