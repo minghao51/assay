@@ -662,7 +662,7 @@
       "workspaceTarget": null,
       "engines": null,
       "peerDependencies": {},
-      "useSiteCount": 162,
+      "useSiteCount": 171,
       "useSites": [
         {
           "file": "netlify/functions/collect.ts",
@@ -945,7 +945,7 @@
         },
         {
           "file": "scripts/dependency-report.test.mjs",
-          "line": 238,
+          "line": 242,
           "via": "require-resolve",
           "symbols": []
         }
@@ -1085,7 +1085,7 @@
         "@vitest/coverage-istanbul": "4.1.11",
         "@vitest/ui": "4.1.11"
       },
-      "useSiteCount": 10,
+      "useSiteCount": 12,
       "useSites": [
         {
           "file": "netlify/functions/collect.test.ts",
@@ -1110,6 +1110,12 @@
           "line": 28,
           "via": "script",
           "symbols": ["test:watch"]
+        },
+        {
+          "file": "scripts/build-collector.test.mjs",
+          "line": 20,
+          "via": "import",
+          "symbols": ["describe", "expect", "it"]
         },
         {
           "file": "scripts/check-assurance-map.test.mjs",
@@ -1140,15 +1146,9 @@
           "line": 15,
           "via": "import",
           "symbols": ["describe", "expect", "it"]
-        },
-        {
-          "file": "vitest.config.ts",
-          "line": 1,
-          "via": "import",
-          "symbols": ["configDefaults", "defineConfig"]
         }
       ],
-      "useSitesTruncated": false,
+      "useSitesTruncated": true,
       "kind": "test",
       "rationale": "the unit/integration runner for every project in vitest.config.ts (web, node, cli-integration); `pnpm test` is this binary plus the CLI build.",
       "pinRationale": null

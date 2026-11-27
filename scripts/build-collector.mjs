@@ -72,40 +72,50 @@ const BANNER = [
   '// has no workspace specifier left to resolve (see the script header).',
 ].join('\n')
 
-const args = process.argv.slice(2)
+async function cli(argv) {
+  const args = argv.slice(2)
+  if (args.includes('--help') || args.includes('-h')) {
+    out(
+      [
+        'Usage: node scripts/build-collector.mjs [--probe <endpoint-url>] [--help]',
+        '',
+        'Default: bundle netlify/functions/collect.ts into the self-contained',
+        'netlify/dist/collect.mjs, import that exact file from a temporary directory',
+        'with no node_modules reachable, and run the contract probes against it.',
+        '',
+        '--probe <url>: run the same probes over HTTP against a deployed endpoint,',
+        'so a green deploy is confirmed by behaviour, not by exit status.',
+      ].join('\n'),
+    )
+    return 0
+  }
 
-if (args.includes('--help') || args.includes('-h')) {
-  out(
-    [
-      'Usage: node scripts/build-collector.mjs [--probe <endpoint-url>] [--help]',
-      '',
-      'Default: bundle netlify/functions/collect.ts into the self-contained',
-      'netlify/dist/collect.mjs, import that exact file from a temporary directory',
-      'with no node_modules reachable, and run the contract probes against it.',
-      '',
-      '--probe <url>: run the same probes over HTTP against a deployed endpoint,',
-      'so a green deploy is confirmed by behaviour, not by exit status.',
-    ].join('\n'),
-  )
-  process.exit(0)
+  const probeIndex = args.indexOf('--probe')
+  const probeTarget = probeIndex === -1 ? undefined : args[probeIndex + 1]
+  const known = new Set(['--probe', probeTarget ?? ''])
+  const unknown = args.filter((arg) => !known.has(arg))
+  if (unknown.length > 0 || (probeIndex !== -1 && probeTarget === undefined)) {
+    err(
+      `build-collector: bad arguments (${args.join(' ')}); usage: --probe <endpoint-url> | --help`,
+    )
+    return 2
+  }
+
+  try {
+    if (probeTarget === undefined) await buildAndProve()
+    else await probeLive(probeTarget)
+    return 0
+  } catch (error) {
+    err(`\nbuild-collector: FAILED — ${error instanceof Error ? error.message : error}`)
+    return 1
+  }
 }
 
-const probeIndex = args.indexOf('--probe')
-const probeTarget = probeIndex === -1 ? undefined : args[probeIndex + 1]
-const known = new Set(['--probe', probeTarget ?? ''])
-const unknown = args.filter((arg) => !known.has(arg))
-if (unknown.length > 0 || (probeIndex !== -1 && probeTarget === undefined)) {
-  err(`build-collector: bad arguments (${args.join(' ')}); usage: --probe <endpoint-url> | --help`)
-  process.exit(2)
-}
-
-try {
-  if (probeTarget === undefined) await buildAndProve()
-  else await probeLive(probeTarget)
-} catch (error) {
-  err(`\nbuild-collector: FAILED — ${error instanceof Error ? error.message : error}`)
-  process.exit(1)
-}
+// Importable by its own test (convention: `check-assurance-map.mjs` and
+// `check-current-state.mjs` guard the same way). Nothing runs on import.
+const invokedDirectly =
+  process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+if (invokedDirectly) process.exitCode = await cli(process.argv)
 
 // ---------------------------------------------------------------------------
 // default mode: build the artefact, then prove it standalone
@@ -116,7 +126,14 @@ async function buildAndProve() {
   const text = await readFile(OUT_FILE, 'utf8')
   assertSelfContained(text)
   const module = await importStandalone(text)
-  const probes = defineProbes(module, (request) => module.default(request))
+  // Offline: `send` dispatches straight to the handler, so no socket is opened and
+  // the host below is never dialled. It is a label, not a destination — the live
+  // path passes the real URL (see `probeLive`).
+  const probes = defineProbes(
+    module,
+    (request) => module.default(request),
+    'https://collector.example.invalid/.netlify/functions/collect',
+  )
   const failed = await runProbes(probes, 'netlify/dist/collect.mjs, imported from a temp dir')
 
   const digest = createHash('sha256').update(text, 'utf8').digest('hex')
@@ -206,6 +223,22 @@ async function importStandalone(text) {
 // --probe mode: the same probes, over HTTP
 // ---------------------------------------------------------------------------
 
+/**
+ * Refuse a request that is addressed anywhere but `endpoint`.
+ *
+ * This is the regression guard for the 2026-11-27 defect: `--probe` reported
+ * "fetch failed" eight times because the probes still carried the placeholder
+ * host. A wrong target must name itself, not masquerade as an unhealthy endpoint.
+ */
+export function guardTarget(request, endpoint) {
+  if (request.url !== endpoint) {
+    throw new Error(
+      `probe request targets ${request.url} but the deployment under test is ${endpoint}`,
+    )
+  }
+  return request
+}
+
 async function probeLive(endpoint) {
   let parsed
   try {
@@ -216,16 +249,17 @@ async function probeLive(endpoint) {
   if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
     throw new Error(`--probe needs an http(s) URL, got ${parsed.protocol}`)
   }
+  const target = `${parsed.origin}${parsed.pathname}`
   // The caps the probes use come from the built artefact (the same file the
   // deploy ships), never from a number retyped here.
   const text = await readFile(OUT_FILE, 'utf8')
   const module = await importStandalone(text)
-  const probes = defineProbes(module, (request) => fetch(request))
-  const failed = await runProbes(probes, `the live endpoint ${parsed.origin}${parsed.pathname}`)
+  const probes = defineProbes(module, (request) => fetch(guardTarget(request, target)), target)
+  const failed = await runProbes(probes, `the live endpoint ${target}`)
   out(
     [
       '',
-      `probed ${parsed.origin}${parsed.pathname}`,
+      `probed ${target}`,
       `       ${probes.length - failed}/${probes.length} green over HTTP — a 502 here means the`,
       '       bundling failed, not the probe',
     ].join('\n'),
@@ -239,15 +273,24 @@ async function probeLive(endpoint) {
 /**
  * The contract's own acceptance list (docs/engineering/07-telemetry-collector.md
  * §2, §2.2). Each probe asserts the status AND the closed reason code, so a
- * handler that accepted everything would fail here. `send` is the only
- * difference between the offline and live runs.
+ * handler that accepted everything would fail here. `send` and `endpoint` are the
+ * only differences between the offline and live runs.
+ *
+ * `endpoint` is REQUIRED and must be the URL the requests are actually addressed
+ * to. It used to be a hardcoded `.invalid` placeholder with `--probe` passing
+ * `fetch` straight through, so the live probe dialled
+ * `https://collector.example.invalid/…` on every run: 8/8 "fetch failed" and a red
+ * step against ANY endpoint, healthy or not (found 2026-11-27). The guard in
+ * `guardTarget` now makes that failure loud and named instead of silent.
  */
-function defineProbes(module, send) {
+export function defineProbes(module, send, endpoint) {
   const { MAX_REQUEST_BYTES } = module
   if (typeof MAX_REQUEST_BYTES !== 'number' || MAX_REQUEST_BYTES <= 0) {
     throw new Error('the bundle does not export MAX_REQUEST_BYTES')
   }
-  const endpoint = 'https://collector.example.invalid/.netlify/functions/collect'
+  if (typeof endpoint !== 'string' || endpoint === '') {
+    throw new Error('defineProbes needs the endpoint its requests are addressed to')
+  }
   const post = (body, headers = {}) =>
     send(
       new Request(endpoint, {

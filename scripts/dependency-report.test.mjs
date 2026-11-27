@@ -68,11 +68,15 @@ describe('dependency-report — baseline', () => {
   })
 
   it('lists every direct declaration exactly once', () => {
-    // 115 = 114 before the collector deployment, which adds one entry: the root
-    // manifest's `@assay/telemetry` workspace link that `netlify/functions/`
-    // imports through. External declarations and annotations are unchanged.
-    expect(committed.entries).toHaveLength(115)
-    expect(committed.entries.filter((entry) => entry.source === 'external')).toHaveLength(74)
+    // 116 = 114, +1 for the root manifest's `@assay/telemetry` workspace link that
+    // `netlify/functions/` imports through (29144f3, the collector deployment),
+    // +1 for the root `esbuild` devDependency the collector bundle needs
+    // (c5bf32a, 2026-11-27). The committed manifest was regenerated to 116/75 by
+    // that commit but these pins still said 115/74, so the suite was red on `main`
+    // until 2026-11-27; the length assertion failed first and hid the external count.
+    // These are witnesses of the derivation, not budgets.
+    expect(committed.entries).toHaveLength(116)
+    expect(committed.entries.filter((entry) => entry.source === 'external')).toHaveLength(75)
     expect(committed.annotations).toHaveLength(31)
     expect(committed.importers).toHaveLength(21)
   })

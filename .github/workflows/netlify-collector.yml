@@ -33,6 +33,17 @@
 # not the acceptance; `--probe` is, because a 502 is invisible to the deploy
 # step itself.
 #
+# 3. (2026-11-27, run 45992312947) `netlify deploy --json` prints
+#    PRETTY-PRINTED, MULTI-LINE JSON. The step used to extract the payload with
+#    `grep -a '^{' | tail -n 1`, which only works for compact one-line JSON: it
+#    captured the lone opening brace, `jq` refused it, and the step failed with
+#    "the CLI printed no site URL" AFTER a deploy that had succeeded. The probe
+#    step then never ran. `url` was a flat top-level key all along — the SHAPE
+#    was wrong, not the key. The payload is now read by
+#    `scripts/netlify-deploy-url.mjs` (unit-tested against that run's exact log
+#    shape, `scripts/netlify-deploy-url.test.mjs`), and STDOUT/STDERR are kept
+#    apart so the deploy's own exit status is real rather than `tee`'s.
+#
 # The cheap half runs on every PR and every push with no path filter, so the
 # collector cannot rot unnoticed. The deploy half runs only on `main` when the
 # collector, its build script, its dependency inputs or this file changed, or
@@ -132,7 +143,8 @@ jobs:
             exit 0
           fi
           if changed="$(git diff --name-only "$BEFORE" HEAD -- \
-              netlify scripts/build-collector.mjs package.json pnpm-lock.yaml \
+              netlify scripts/build-collector.mjs scripts/netlify-deploy-url.mjs \
+              package.json pnpm-lock.yaml \
               .github/workflows/netlify-collector.yml)"; then
             if [ -n "$changed" ]; then
               echo "deploy=true" >> "$GITHUB_OUTPUT"
@@ -212,22 +224,38 @@ jobs:
             ls -l dist
             exit 1
           fi
-          # `--json` prints the deploy URL the app build needs as
-          # `ASSAY_TELEMETRY_ENDPOINT` (plus site name, deploy id and log URLs).
-          # The CLI writes progress lines before the JSON, so the payload is the
-          # last line that starts with `{` — never a blind `tail`.
+          # `--json` prints the deploy result on STDOUT; `npx` warnings and CLI
+          # progress go to STDERR. Keeping the streams apart is what makes the
+          # payload parseable and the deploy's exit status real — a `| tee`
+          # pipeline reports tee's status, so a failed deploy used to surface
+          # only as "no site URL". Both streams are still echoed verbatim below.
           log="$RUNNER_TEMP/netlify-deploy.log"
+          payload="$RUNNER_TEMP/netlify-deploy.json"
+          status=0
           npx --yes "netlify-cli@${NETLIFY_CLI_VERSION}" deploy --prod \
             --site "$NETLIFY_SITE_ID" \
             --message "assay collector ${GITHUB_SHA}" \
-            --json 2>&1 | tee "$log"
-          json="$(grep -a '^{' "$log" | tail -n 1 || true)"
-          url="$(printf '%s' "$json" | jq -r '.url // empty' 2>/dev/null || true)"
+            --json >"$payload" 2>"$log" || status=$?
+          cat "$log"
+          cat "$payload"
+          if [ "$status" -ne 0 ]; then
+            echo "::error title=Collector deploy failed::netlify deploy exited $status; nothing was verified and the probe does not run."
+            exit 1
+          fi
+          # The payload is pretty-printed multi-line JSON: the reader finds the
+          # LAST parsable object across both files (so a stray progress line on
+          # either stream cannot defeat it). It fails closed with a reason on
+          # stderr instead of yielding an empty URL.
+          if ! fields="$(node "$GITHUB_WORKSPACE/scripts/netlify-deploy-url.mjs" "$log" "$payload")"; then
+            echo "::error title=Collector deploy result unreadable::the deploy exited 0 but its output yielded no usable site URL, so the probe cannot run. The raw output is in the step log above."
+            exit 1
+          fi
+          IFS=$'\t' read -r url site_name deploy_id <<<"$fields"
           if [ -z "$url" ]; then
             echo "::error title=Collector deploy URL unknown::the CLI printed no site URL; the probe step cannot run."
             exit 1
           fi
-          echo "site: $(printf '%s' "$json" | jq -r '.site_name // empty') · deploy: $(printf '%s' "$json" | jq -r '.deploy_id // empty')"
+          echo "site: ${site_name} · deploy: ${deploy_id}"
           {
             echo "## Collector deployed"
             echo
