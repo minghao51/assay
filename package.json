@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Assay \u2014 the local-first data workbench (monorepo root)",
+  "description": "Assay — the local-first data workbench (monorepo root)",
   "license": "AGPL-3.0-or-later",
   "packageManager": "pnpm@11.26.0",
   "engines": {
@@ -29,7 +29,8 @@
     "test:e2e": "playwright test",
     "dev": "pnpm --filter @assay/web dev",
     "changeset": "changeset",
-    "version-packages": "changeset version"
+    "version-packages": "changeset version",
+    "collector:build": "node scripts/build-collector.mjs"
   },
   "devDependencies": {
     "@assay/telemetry": "workspace:*",
@@ -39,6 +40,7 @@
     "@playwright/test": "^1.55.0",
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
+    "esbuild": "0.28.2",
     "eslint": "^10.11.0",
     "eslint-plugin-import-x": "^4.17.1",
     "eslint-plugin-react-hooks": "^7.1.1",

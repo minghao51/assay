@@ -1,0 +1,126 @@
+# Netlify project for the Assay telemetry collector (ADR 0053; operator
+# contract docs/engineering/07-telemetry-collector.md §5).
+#
+# This directory IS the Netlify project. It exists for exactly ONE function —
+# `POST /.netlify/functions/collect`. It is NOT the Assay web app: the app is
+# built and served elsewhere.
+#
+# ## Source vs. what is deployed
+#
+# | Path                        | Role                                                    |
+# | --------------------------- | ------------------------------------------------------- |
+# | `functions/collect.ts`      | the source (reviewed, unit-tested)                      |
+# | `functions/collect.test.ts` | its suite — NOT a function, NOT deployed                |
+# | `dist/collect.mjs`          | the deployed artefact: `pnpm collector:build` writes it |
+#
+# `functions` below points at `dist`, not at `functions`, so exactly one
+# self-contained file ships and the test file cannot be deployed as a second
+# function. `dist/` is git-ignored build output; the CI workflow builds it in
+# both jobs, and `scripts/build-collector.mjs` refuses to finish unless that
+# exact file imports and answers with no `node_modules` reachable.
+#
+# ## Why the function is pre-bundled (do not "simplify" this away)
+#
+# The handler imports its schema from `@assay/telemetry` — one schema, no copy
+# (ADR 0045). Netlify *can* compile TypeScript functions itself, and that is the
+# trap: a **v2** function forces Netlify's `nft` dependency tracer,
+# `node_bundler = "esbuild"` is ignored, and nft leaves the workspace specifier
+# external. The deployed bundle then keeps
+# `import … from "@assay/telemetry"` and carries only
+# `node_modules/@assay/telemetry` (a symlink) plus
+# `packages/telemetry/package.json`, whose `exports` points at
+# `packages/telemetry/src/index.ts` — a file Netlify does not ship. Observed
+# result (proven by unzipping the deployed function):
+#
+#   ERR_MODULE_NOT_FOUND …/packages/telemetry/src/index.ts
+#
+# i.e. a deploy job that is GREEN and an endpoint that 502s on the first
+# request. Pre-bundling with esbuild sidesteps nft entirely: the shipped file
+# imports only `node:` builtins, so there is nothing left to resolve at runtime
+# and the package's validator, allowlist and caps are compiled in — inlined,
+# never copied. Reintroducing `node_bundler`, a Netlify build plugin, or
+# `external: ['@assay/telemetry']` puts the 502 back.
+#
+# ## Why the project is this directory and not the repository root
+#
+# The repository is a pnpm workspace with 20 packages. Run from the root,
+# `netlify deploy` detects them, refuses to guess which one to work on, and
+# aborts before it ever reads `NETLIFY_SITE_ID`:
+#
+#   › Error: Projects detected: @assay/cli, @assay/vscode, @assay/web, ...
+#     Configure the project you want to work with and try again.
+#
+# Run from inside `netlify/` — which is deliberately NOT one of the workspace
+# packages — that detection finds no workspace package here and stops asking.
+# The deploy workflow therefore runs the CLI with `working-directory: netlify`
+# (or, equivalently, `--cwd netlify`) and passes `--site "$NETLIFY_SITE_ID"`
+# explicitly.
+#
+# `base` is what makes the relative paths below mean this directory. Netlify
+# resolves `publish` and `functions` against `build.base` (the "Base directory"
+# in the UI), which defaults to the repository root; `base` itself is resolved
+# against the repository root, not against the directory the CLI happens to run
+# in. Without `base = "netlify"` this file's `publish = "publish"` would resolve
+# to `<repo>/publish`, a directory that does not exist.
+#
+# ## Relationship to the root `netlify.toml`
+#
+# The two files cannot contradict each other: they describe the same site at
+# two different base directories, and Netlify only ever reads the one nearest
+# the base directory it resolved first (config discovery walks *up* from the
+# base, never down). Verified with `@netlify/config` `resolveConfig`: from the
+# repository root the root file resolves `publish` to `<repo>/netlify/publish`
+# and `functions` to `<repo>/netlify/dist`; from this directory, this file
+# resolves to the same two paths.
+#
+#   * `netlify/netlify.toml` — base is this directory (`base = "netlify"`,
+#     either here or as the UI build setting). Used by the deploy workflow and
+#     by anyone who sets the site's base directory to `netlify`.
+#   * `netlify.toml` at the repository root — base is the repository root
+#     (`publish = "netlify/publish"`, `functions = "netlify/dist"`). Read by a
+#     person connecting the repository in Netlify with the default base
+#     directory.
+#
+# Both spell out the same publish directory, function directory and header
+# rule; keep the two textually parallel. Neither declares a `[build] command`:
+# the deploy workflow runs `pnpm collector:build` and then deploys, so the
+# deploy step never needs the monorepo's build graph. A Git-integration build
+# (a push triggering Netlify directly) WOULD need that command — and must fail
+# rather than deploy an empty functions directory if it is absent.
+#
+# ## Where the deployed URL goes
+#
+# The only link between the collector and the app is a single build-time
+# variable, set when the *app* is built (apps/web/vite.config.ts inlines it, and
+# the stock build — with it unset — stays inert):
+#
+#   ASSAY_TELEMETRY_ENDPOINT=https://<site>/.netlify/functions/collect
+#
+# Optional companion: `ASSAY_TELEMETRY_TOKEN` (sent as `authorization: Bearer`;
+# the contract calls it a write-only ingest token). It is *not* authentication:
+# the value ships to every browser that loads the app, so it is public. The
+# function compares it, when the Netlify site variable
+# `ASSAY_TELEMETRY_INGEST_TOKEN` is set, against that variable with a timing-safe
+# comparison and refuses a mismatch with `401 unauthorized` — a spam filter, not
+# a security boundary. Leave the site variable unset and the check is skipped
+# (today's open behaviour); both app-side variables are configured at build
+# time, the site-side one in the Netlify site environment, never as repository
+# secrets, and neither is ever logged. No default URL is baked into the source,
+# and the public disclosure copy (docs/telemetry-disclosure.md) plus the
+# endpoint-free build both key off this same variable. Do not add a second way
+# to set it.
+
+[build]
+  # Netlify resolves `publish`/`functions` against this directory.
+  base = "netlify"
+  publish = "publish"
+  # The pre-bundled artefact directory, NOT the TypeScript source: see the
+  # "Source vs. what is deployed" and "Why the function is pre-bundled" blocks.
+  functions = "dist"
+
+# Nothing the collector returns may be cached: a cached 202/4xx would hide a
+# refusal from the client that must drop the batch.
+[[headers]]
+  for = "/.netlify/functions/collect"
+  [headers.values]
+    Cache-Control = "no-store"

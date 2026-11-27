@@ -1,17 +1,42 @@
 # Assay telemetry collector — validate always, deploy the Netlify function from
-# `main` (ADR 0053; operator contract docs/engineering/07-telemetry-collector.md
-# §5; successor queue §15.2).
+# `main`, then prove the deployed endpoint answers (ADR 0053; operator contract
+# docs/engineering/07-telemetry-collector.md §5; successor queue §15.2).
 #
-# STATUS 2026-11-24 — UNEXERCISED. GitHub Actions is billing-blocked (R-20: four
-# job-start refusals with `steps=0` on run 44887930938), so no job in this file
-# has ever run remotely and no deploy has ever happened. It is written to be
-# correct and its commands pass locally in this tree; treat any future green run
-# as the first evidence, not as a re-run of something known-good.
+# STATUS 2026-11-27 — DEPLOYED AND PROBED. Recording the two things that were
+# learned the hard way, because both looked like "it works":
+#
+# 1. Netlify's monorepo detection runs BEFORE `NETLIFY_SITE_ID` is honoured, so
+#    from the repository root the CLI aborts with `Projects detected: @assay/…`.
+#    Both jobs that touch the CLI therefore run it with
+#    `working-directory: netlify` (a directory deliberately outside the pnpm
+#    workspace) and pass `--site "$NETLIFY_SITE_ID"` explicitly.
+# 2. A **v2** Netlify function forces the `nft` dependency tracer —
+#    `node_bundler = "esbuild"` is ignored — and nft leaves the workspace
+#    specifier external: the deployed bundle keeps
+#    `import … from "@assay/telemetry"` and ships only the `node_modules`
+#    symlink plus `packages/telemetry/package.json`, whose `exports` points at
+#    `packages/telemetry/src/index.ts` — a file Netlify does not ship. That
+#    deploy is GREEN and the endpoint 502s with `ERR_MODULE_NOT_FOUND`.
+#
+# Hence: the function is pre-bundled by `pnpm collector:build`
+# (scripts/build-collector.mjs, esbuild) into ONE self-contained file,
+# `netlify/dist/collect.mjs`, that inlines `@assay/telemetry`; the Netlify
+# functions setting points at `netlify/dist`, so nft has nothing to trace and
+# `netlify/functions/collect.test.ts` cannot be deployed as a second function.
+# The package's validator/allowlist/caps stay the single source of truth — the
+# schema is compiled in, never copied.
+#
+# The validate job builds and proves the artefact on every PR and push (it is
+# imported from a temporary directory with no node_modules reachable, then
+# driven through the contract's accept/refuse paths). The deploy job rebuilds
+# it, deploys, and then PROBES THE LIVE ENDPOINT over HTTP — a green deploy is
+# not the acceptance; `--probe` is, because a 502 is invisible to the deploy
+# step itself.
 #
 # The cheap half runs on every PR and every push with no path filter, so the
-# collector cannot rot unnoticed: typecheck, lint and the unit suite. The deploy
-# half runs only on `main` when `netlify/**` or this file changed, or when
-# dispatched by hand.
+# collector cannot rot unnoticed. The deploy half runs only on `main` when the
+# collector, its build script, its dependency inputs or this file changed, or
+# when dispatched by hand.
 name: Telemetry collector (Netlify Functions)
 
 on:
@@ -29,9 +54,15 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # Pinned deliberately: a floating CLI is a supply-chain and reproducibility
+  # problem in the one step that holds a deploy token. Bump this in the same
+  # commit that records the run which used the new version.
+  NETLIFY_CLI_VERSION: 27.20.1
+
 jobs:
   validate:
-    name: typecheck / lint / test the collector
+    name: typecheck / lint / test / bundle the collector
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -62,13 +93,20 @@ jobs:
       - name: Unit-test the collector
         run: pnpm exec vitest run --project node netlify
 
+      # The deployable artefact is built HERE too, on every PR and push, so the
+      # bundling cannot rot: this fails if the bundle leaves any non-builtin
+      # import, or if the built file does not answer the contract probes when
+      # imported from a temporary directory with no node_modules reachable.
+      - name: Build and prove the deployable bundle
+        run: pnpm collector:build
+
   deploy:
     name: deploy collector (a missing secret is a failure, not a pass)
     needs: validate
     # Push-to-main only (plus manual dispatch): a PR never deploys.
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     permissions:
       contents: read
     steps:
@@ -78,9 +116,10 @@ jobs:
           # Full history: the relevance check below diffs the pushed range.
           fetch-depth: 0
 
-      # Deploy when `netlify/**` or this workflow changed. Anything it cannot
-      # prove irrelevant (a forced push, an unknown base) counts as relevant —
-      # an unnecessary deploy is harmless, a skipped one hides a change.
+      # Deploy when the collector, the bundle script, its dependency inputs or
+      # this workflow changed. Anything it cannot prove irrelevant (a forced
+      # push, an unknown base) counts as relevant — an unnecessary deploy is
+      # harmless, a skipped one hides a change.
       - name: Decide whether this push needs a deploy
         id: relevance
         env:
@@ -92,17 +131,42 @@ jobs:
             echo "deploy=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          if changed="$(git diff --name-only "$BEFORE" HEAD -- netlify .github/workflows/netlify-collector.yml)"; then
+          if changed="$(git diff --name-only "$BEFORE" HEAD -- \
+              netlify scripts/build-collector.mjs package.json pnpm-lock.yaml \
+              .github/workflows/netlify-collector.yml)"; then
             if [ -n "$changed" ]; then
               echo "deploy=true" >> "$GITHUB_OUTPUT"
             else
               echo "deploy=false" >> "$GITHUB_OUTPUT"
-              echo "::notice title=Collector deploy skipped::this push changed nothing under netlify/ or this workflow"
+              echo "::notice title=Collector deploy skipped::this push changed nothing the collector deploys"
             fi
           else
             echo "deploy=true" >> "$GITHUB_OUTPUT"
             echo "::warning title=Collector deploy relevance unknown::could not diff $BEFORE..HEAD; deploying to be safe"
           fi
+
+      # The deploy needs esbuild (the bundle) and the schema source it inlines.
+      - name: Install the workspace
+        if: steps.relevance.outputs.deploy == 'true'
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Set up Node
+        if: steps.relevance.outputs.deploy == 'true'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - name: Install dependencies
+        if: steps.relevance.outputs.deploy == 'true'
+        run: pnpm install --frozen-lockfile
+
+      # Rebuild and re-prove here rather than trusting the validate job's
+      # artefact (jobs do not share a filesystem). The proof also prints the
+      # sha256 of the exact bytes this deploy ships.
+      - name: Build and prove the deployable bundle
+        if: steps.relevance.outputs.deploy == 'true'
+        run: pnpm collector:build
 
       # Secrets are unavailable to a job-level `if`, so they are checked here.
       # The unconfigured case FAILS deliberately. A skipped deploy step under a
@@ -112,7 +176,9 @@ jobs:
       # message and the job summary carry no secret and no endpoint — only
       # whether the two named secrets exist.
       - name: Deploy the collector function
+        id: deploy
         if: steps.relevance.outputs.deploy == 'true'
+        working-directory: netlify
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
@@ -125,18 +191,71 @@ jobs:
               echo "\`NETLIFY_SITE_ID\` are not configured as repository secrets."
               echo
               echo "**No deployment happened.** Create the Netlify site for the collector,"
-              echo "add both secrets, then re-run this workflow. Deployment is also"
-              echo "unexercised while GitHub Actions is billing-blocked (R-20)."
+              echo "add both secrets, then re-run this workflow."
             } >> "$GITHUB_STEP_SUMMARY"
             echo "::error title=Collector NOT deployed::NETLIFY_AUTH_TOKEN / NETLIFY_SITE_ID are not configured; nothing was deployed."
             exit 1
           fi
-          # `netlify.toml` declares the functions directory and the (empty)
-          # publish directory, so no flags are needed. The CLI also prints the
-          # deployed function URL — that URL, plus `/.netlify/functions/collect`,
-          # is what the app build gets as ASSAY_TELEMETRY_ENDPOINT.
-          #
-          # Version deliberately not pinned yet: this step has never run (R-20),
-          # so a pin would be an invented fact. Pin the version the first run
-          # actually uses, in the same commit that records that run.
-          npx --yes netlify-cli@latest deploy --prod --message "assay collector ${GITHUB_SHA}"
+          # `working-directory: netlify` keeps the CLI out of the pnpm workspace
+          # root, where `@netlify/build-info` detects 20 projects and aborts
+          # before the site id is read. `--site` states the site anyway, so the
+          # command cannot depend on a linked directory.
+          # Exactly one file, so exactly one function ships — the unit suite
+          # (`functions/collect.test.ts`) sits in the source directory and can
+          # never be bundled as a second function.
+          if ! test -f dist/collect.mjs; then
+            echo "::error title=Collector NOT deployed::netlify/dist/collect.mjs is missing; nothing was deployed."
+            exit 1
+          fi
+          if [ "$(ls dist | wc -l)" -ne 1 ]; then
+            echo "::error title=Collector NOT deployed::netlify/dist must hold exactly one function file."
+            ls -l dist
+            exit 1
+          fi
+          # `--json` prints the deploy URL the app build needs as
+          # `ASSAY_TELEMETRY_ENDPOINT` (plus site name, deploy id and log URLs).
+          # The CLI writes progress lines before the JSON, so the payload is the
+          # last line that starts with `{` — never a blind `tail`.
+          log="$RUNNER_TEMP/netlify-deploy.log"
+          npx --yes "netlify-cli@${NETLIFY_CLI_VERSION}" deploy --prod \
+            --site "$NETLIFY_SITE_ID" \
+            --message "assay collector ${GITHUB_SHA}" \
+            --json 2>&1 | tee "$log"
+          json="$(grep -a '^{' "$log" | tail -n 1 || true)"
+          url="$(printf '%s' "$json" | jq -r '.url // empty' 2>/dev/null || true)"
+          if [ -z "$url" ]; then
+            echo "::error title=Collector deploy URL unknown::the CLI printed no site URL; the probe step cannot run."
+            exit 1
+          fi
+          echo "site: $(printf '%s' "$json" | jq -r '.site_name // empty') · deploy: $(printf '%s' "$json" | jq -r '.deploy_id // empty')"
+          {
+            echo "## Collector deployed"
+            echo
+            echo "- Site: \`$url\`"
+            echo "- Endpoint for the app build: \`ASSAY_TELEMETRY_ENDPOINT=$url/.netlify/functions/collect\`"
+            echo "- Function: \`netlify/dist/collect.mjs\` (self-contained; \`@assay/telemetry\` inlined)"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+
+      # The acceptance for this workflow. A green deploy step is NOT evidence
+      # the function runs: the bundling failure this workflow works around
+      # shipped a green deploy and a 502 on first request. Retries are bounded
+      # (3 attempts) to cover deploy propagation, never to mask a 502.
+      - name: Prove the deployed endpoint answers
+        if: steps.relevance.outputs.deploy == 'true'
+        env:
+          COLLECTOR_URL: ${{ steps.deploy.outputs.url }}
+        run: |
+          for attempt in 1 2 3; do
+            echo "::group::probe attempt $attempt"
+            if node scripts/build-collector.mjs --probe "$COLLECTOR_URL/.netlify/functions/collect"; then
+              echo "::endgroup::"
+              echo "::notice title=Collector verified::the live endpoint answers the contract probes"
+              exit 0
+            fi
+            echo "::endgroup::"
+            echo "::warning title=Collector probe failed::attempt $attempt of 3; retrying in 5s"
+            sleep 5
+          done
+          echo "::error title=Collector probe failed::the deploy may be green, but the live endpoint does not answer the contract"
+          exit 1
