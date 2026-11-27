@@ -33,3 +33,6 @@ Thumbs.db
 
 # local product state (docs/architecture/02-architecture.md §13 is runtime state, not repo content)
 .assay/
+
+# Local Netlify CLI link state (contains this machine's siteId)
+.netlify
