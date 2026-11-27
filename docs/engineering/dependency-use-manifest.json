@@ -406,8 +406,14 @@
       "workspaceTarget": "packages/telemetry",
       "engines": null,
       "peerDependencies": null,
-      "useSiteCount": 5,
+      "useSiteCount": 6,
       "useSites": [
+        {
+          "file": ".github/workflows/netlify-collector.yml",
+          "line": 16,
+          "via": "config-string",
+          "symbols": ["@assay/telemetry"]
+        },
         {
           "file": "netlify/functions/collect.test.ts",
           "line": 18,
@@ -435,13 +441,13 @@
         },
         {
           "file": "pnpm-lock.yaml",
-          "line": 110,
+          "line": 113,
           "via": "config-string",
           "symbols": ["@assay/telemetry"]
         },
         {
           "file": "pnpm-lock.yaml",
-          "line": 201,
+          "line": 204,
           "via": "config-string",
           "symbols": ["@assay/telemetry"]
         }
@@ -656,7 +662,7 @@
       "workspaceTarget": null,
       "engines": null,
       "peerDependencies": {},
-      "useSiteCount": 155,
+      "useSiteCount": 162,
       "useSites": [
         {
           "file": "netlify/functions/collect.ts",
@@ -678,43 +684,43 @@
         },
         {
           "file": "pnpm-lock.yaml",
-          "line": 123,
+          "line": 126,
           "via": "config-string",
           "symbols": ["@types/node"]
         },
         {
           "file": "pnpm-lock.yaml",
-          "line": 159,
+          "line": 162,
           "via": "config-string",
           "symbols": ["@types/node"]
         },
         {
           "file": "pnpm-lock.yaml",
-          "line": 377,
+          "line": 380,
           "via": "config-string",
           "symbols": ["@types/node"]
         },
         {
           "file": "pnpm-lock.yaml",
-          "line": 395,
+          "line": 398,
           "via": "config-string",
           "symbols": ["@types/node"]
         },
         {
           "file": "pnpm-lock.yaml",
-          "line": 423,
+          "line": 426,
           "via": "config-string",
           "symbols": ["@types/node"]
         },
         {
           "file": "pnpm-lock.yaml",
-          "line": 451,
+          "line": 454,
           "via": "config-string",
           "symbols": ["@types/node"]
         },
         {
           "file": "pnpm-lock.yaml",
-          "line": 2310,
+          "line": 2313,
           "via": "config-string",
           "symbols": ["@types/node"]
         }
@@ -755,19 +761,19 @@
         },
         {
           "file": "pnpm-lock.yaml",
-          "line": 2360,
+          "line": 2363,
           "via": "config-string",
           "symbols": ["@vitest/coverage-v8"]
         },
         {
           "file": "pnpm-lock.yaml",
-          "line": 2380,
+          "line": 2383,
           "via": "config-string",
           "symbols": ["@vitest/coverage-v8"]
         },
         {
           "file": "pnpm-lock.yaml",
-          "line": 4252,
+          "line": 4255,
           "via": "config-string",
           "symbols": ["@vitest/coverage-v8"]
         },
@@ -781,6 +787,40 @@
       "useSitesTruncated": false,
       "kind": "test",
       "rationale": "V8 coverage provider named in vitest.config.ts; the coverage thresholds in that config are enforced through it.",
+      "pinRationale": null
+    },
+    {
+      "importer": ".",
+      "name": "esbuild",
+      "source": "external",
+      "section": "devDependencies",
+      "declared": "0.28.2",
+      "declaredRange": "0.28.2",
+      "catalog": null,
+      "locked": "0.28.2",
+      "workspaceTarget": null,
+      "engines": {
+        "node": ">=18"
+      },
+      "peerDependencies": null,
+      "useSiteCount": 2,
+      "useSites": [
+        {
+          "file": ".github/workflows/netlify-collector.yml",
+          "line": 14,
+          "via": "config-string",
+          "symbols": ["esbuild"]
+        },
+        {
+          "file": "scripts/build-collector.mjs",
+          "line": 57,
+          "via": "import",
+          "symbols": ["build"]
+        }
+      ],
+      "useSitesTruncated": false,
+      "kind": "bin",
+      "rationale": "bundles the VS Code extension host and webview entries in apps/vscode/scripts/build.mjs (imported as a JS API, not only as a binary); the desktop payload on every native dependency graph is produced by it.",
       "pinRationale": null
     },
     {
