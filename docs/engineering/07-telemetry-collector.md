@@ -151,19 +151,24 @@ smallest thing that receives the §2 request.
 - **What it does not do.** No storage, no forwarding, no retention job, no rate limiter: the function
   validates and discards. §3's retention table and §4's rate limiting therefore remain operator work
   before this endpoint is an analytics source.
-- **Status (2026-11-27): the workflow deploys; production does not currently serve the function.**
-  Remote CI is live again (the repository is public, so R-20 lapsed), and run `45992312947` uploaded a
-  deploy whose function answers the **whole §2 contract over HTTP — 8/8 probes green**, measured
-  2026-11-27 against that deploy's own URL. What is **not** true is that the documented endpoint works:
-  `https://assay-dataworkbench.netlify.app/.netlify/functions/collect` answers **404** to `GET`,
-  `OPTIONS` and `POST`. The published deploy is a Netlify **Git-integration** build of `main`, not the
-  workflow's upload: the site is connected to the repository, its build settings declare no command,
-  and `netlify/dist/` is git-ignored — so a Git build ships the placeholder `publish` directory and an
-  empty functions directory, and it replaces the workflow's deploy on the next push. Two decisions are
-  open (successor queue §15.2): give the Git build a command that produces `dist` **and fails when it is
-  empty**, or disconnect the Git integration so only the workflow deploys; and whether the workflow
-  should verify the canonical URL on every push to `main` rather than only when it deploys. Nothing is
-  collected today, so the public [disclosure](../telemetry-disclosure.md) stays accurate.
+- **Deploy topology: one writer, and a standing probe ([ADR 0054](../adr/0054-single-writer-deploy-and-standing-production-probe.md)).**
+  `.github/workflows/netlify-collector.yml` is the **only** writer to the site; Netlify's Git integration
+  stays disconnected and reconnecting it is a decision, not a convenience. Because a deploy-time probe
+  cannot see production drifting afterwards, a `verify-production` job probes the **canonical** URL on
+  every push to `main`, whether or not that run deployed anything, using the repository variable
+  `ASSAY_COLLECTOR_URL` (site origin). A missing variable fails the job; it never skips. Both
+  `netlify.toml` files keep an inert `[build] command` so a future reconnect rebuilds the function
+  rather than shipping an empty functions directory.
+- **Status (2026-11-27): the workflow deploys and its bytes pass the whole contract — production served
+  no function until the deploy topology above was fixed.** Run `45992312947` uploaded a deploy whose
+  function answers **8/8 probes green** against that deploy's own URL, while
+  `https://assay-dataworkbench.netlify.app/.netlify/functions/collect` answered **404** to `GET`,
+  `OPTIONS` and `POST`: the published deploy was a Netlify **Git-integration** build of `main` (no build
+  command, `netlify/dist/` git-ignored), which shipped the placeholder `publish` directory and an empty
+  functions directory and replaced the workflow's deploy on the next push. Evidence and the decision are
+  in [ADR 0054](../adr/0054-single-writer-deploy-and-standing-production-probe.md) and successor queue
+  §15.2. Nothing is collected today, so the public [disclosure](../telemetry-disclosure.md) stays
+  accurate.
 - **The acceptance tool was itself broken until 2026-11-27.** `--probe <url>` addressed
   `https://collector.example.invalid/…` (a hardcoded placeholder) and never dialled the URL it was given,
   so every live probe reported 8/8 `fetch failed` regardless of the deployment's health; and the step's

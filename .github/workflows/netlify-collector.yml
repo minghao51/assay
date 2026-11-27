@@ -48,6 +48,23 @@
 # collector cannot rot unnoticed. The deploy half runs only on `main` when the
 # collector, its build script, its dependency inputs or this file changed, or
 # when dispatched by hand.
+#
+# 4. (2026-11-27, ADR 0054) **This workflow is the ONLY writer to the site.** The
+#    site had two writers, and the second silently undid the first: Netlify's Git
+#    integration rebuilt `main` on every push with no `[build] command`, so it
+#    published the placeholder `publish` directory with an EMPTY functions
+#    directory and replaced this workflow's deploy. The canonical endpoint then
+#    answered 404 for 72 minutes behind a green Netlify build. The Git integration
+#    is disconnected by decision — do not reconnect it. Both `netlify.toml` files
+#    carry an inert `[build] command` so that a future reconnect rebuilds the
+#    function instead of re-arming the trap.
+#
+# 5. `verify-production` asks the CANONICAL URL on every push to `main`, whether or
+#    not this run deployed anything. The deploy-time probe only proves the bytes
+#    that run just shipped; it cannot see production drifting afterwards (another
+#    deploy, a manual `netlify deploy`, a deleted function). That job is the alarm
+#    for this class, and it reads its URL from the repository VARIABLE
+#    `ASSAY_COLLECTOR_URL` — not from a secret, never hardcoded here.
 name: Telemetry collector (Netlify Functions)
 
 on:
@@ -286,4 +303,71 @@ jobs:
             sleep 5
           done
           echo "::error title=Collector probe failed::the deploy may be green, but the live endpoint does not answer the contract"
+          exit 1
+
+  # The drift alarm (ADR 0054). Deliberately NOT `needs: deploy`-gated on success:
+  # it runs after the deploy job settles whatever the outcome, because "this run
+  # deployed nothing" and "this run failed to deploy" are exactly when production
+  # drifting would otherwise go unnoticed. It never deploys, never authenticates
+  # and reads no secret — the probe is public HTTP.
+  verify-production:
+    name: verify production still serves the collector
+    needs: [validate, deploy]
+    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # `--probe` reads MAX_REQUEST_BYTES and the caps from the built artefact —
+      # the same file the deploy ships — so the numbers are never retyped here.
+      - name: Build the artefact the probe measures against
+        run: pnpm collector:build
+
+      - name: Probe the canonical endpoint
+        env:
+          SITE_URL: ${{ vars.ASSAY_COLLECTOR_URL }}
+        run: |
+          # The variable is the SITE origin (`https://<site>.netlify.app`). A value
+          # that already ends with the function path is accepted too, so a
+          # reasonable misconfiguration cannot produce a doubled path and a
+          # confusing 404. Absent is a FAILURE, not a skip: a silent skip here is
+          # indistinguishable from "production is fine", which is the whole
+          # failure mode this job exists to remove.
+          if [ -z "$SITE_URL" ]; then
+            echo "::error title=Collector URL not configured::set the repository VARIABLE ASSAY_COLLECTOR_URL to the collector site origin (for example https://assay-dataworkbench.netlify.app); this job cannot verify production without it."
+            exit 1
+          fi
+          site_url="${SITE_URL%/}"
+          case "$site_url" in
+            */.netlify/functions/collect) endpoint="$site_url" ;;
+            *) endpoint="$site_url/.netlify/functions/collect" ;;
+          esac
+          # Bounded retries cover a just-settled deploy propagating to the CDN;
+          # they never mask a 404 or a 502, which reproduce on every attempt.
+          for attempt in 1 2 3; do
+            echo "::group::probe attempt $attempt"
+            if node scripts/build-collector.mjs --probe "$endpoint"; then
+              echo "::endgroup::"
+              echo "::notice title=Production verified::the canonical endpoint answers the contract probes"
+              exit 0
+            fi
+            echo "::endgroup::"
+            echo "::warning title=Production probe failed::attempt $attempt of 3; retrying in 5s"
+            sleep 5
+          done
+          echo "::error title=Production does not serve the collector::$endpoint did not answer the contract. Production has drifted from this repository: check the site's deploy history for a deploy this workflow did not make (a reconnect of Netlify's Git integration, a manual deploy), and see ADR 0054."
           exit 1

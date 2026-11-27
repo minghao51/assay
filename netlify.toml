@@ -53,8 +53,15 @@
 # function receives nothing.
 
 [build]
-  # No build command: see the header. `publish` is a checked-in placeholder and
-  # `functions` is the pre-bundled output of `pnpm collector:build`.
+  # INERT BY DECISION (ADR 0054, 2026-11-27): this site does not build from Git.
+  # `.github/workflows/netlify-collector.yml` is the only writer — it builds the
+  # artefact and runs `netlify deploy`, which never executes a build command. The
+  # command stays because a Git build without it silently published the
+  # placeholder `publish` directory with an EMPTY functions directory
+  # (`netlify/dist` is git-ignored), replacing the workflow's deploy and leaving
+  # the endpoint 404 for 72 minutes. If the Git integration is ever reconnected,
+  # this line is what keeps the build correct instead of re-arming that trap.
+  command = "pnpm collector:build"
   publish = "netlify/publish"
   functions = "netlify/dist"
 

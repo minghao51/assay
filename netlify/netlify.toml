@@ -117,6 +117,13 @@
   # The pre-bundled artefact directory, NOT the TypeScript source: see the
   # "Source vs. what is deployed" and "Why the function is pre-bundled" blocks.
   functions = "dist"
+  # INERT BY DECISION (ADR 0054, 2026-11-27): the Git integration is disconnected
+  # and `.github/workflows/netlify-collector.yml` is the only writer, running
+  # `netlify deploy` — which never executes a build command. Kept so that a
+  # reconnect rebuilds the function here too, instead of shipping an empty
+  # functions directory (`dist/` is git-ignored). cwd here is this directory, so
+  # the build runs against the workspace root via -w.
+  command = "pnpm -w collector:build"
 
 # Nothing the collector returns may be cached: a cached 202/4xx would hide a
 # refusal from the client that must drop the batch.

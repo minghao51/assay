@@ -731,6 +731,17 @@ later reader does not rediscover them:
    `dist` and fails when it is empty, or disconnect the Git integration so only the workflow deploys;
    plus whether to verify the canonical URL on every push to `main` rather than only when deploying.
 
+   **Decided 2026-11-27 — [ADR 0054](../../adr/0054-single-writer-deploy-and-standing-production-probe.md):**
+   the Git integration is **disconnected** and the deploy workflow is the **only** writer, and a
+   `verify-production` job probes the canonical URL on **every** push to `main` (repository variable
+   `ASSAY_COLLECTOR_URL`, missing = failure, never a skip). Both `netlify.toml` files keep an **inert**
+   `[build] command` so a reconnect rebuilds the function instead of re-arming the empty-functions trap.
+   One human step remains, and it is in the Netlify UI rather than this repository: disconnect the Git
+   integration for the site (Site configuration → Build & deploy), and set the `ASSAY_COLLECTOR_URL`
+   repository variable to the site origin. Until the disconnect is done, a push to `main` can still
+   publish an empty functions directory a minute after the workflow's probe goes green — that is the
+   race ADR 0054 removes, and the code side of it is already in place.
+
 Why a server runtime was needed at all, and the options that were weighed (kept as the record of the
 choice):
 

@@ -77,11 +77,21 @@ API + HTTP on 2026-11-27:
 | `6b097d60…` (12:53Z, **published**) | Git build           | `3bbf12c`  | 404                                       |
 
 So the handoff's "deployed and verified live" was true of the CLI deploy for 72 minutes and was undone by
-the next push. **Open decision (maintainer):** (a) give the Git build a command that produces `dist` and
-fails when it is empty — `netlify.toml` already says a Git build "must fail rather than deploy an empty
-functions directory" — or (b) disconnect the Git integration for this site so only the workflow deploys;
-and (c) whether the workflow should verify the canonical URL on **every** push to `main` (a separate job),
-not only when it deploys, since Git builds can change production whenever it does not.
+the next push.
+
+**Decided 2026-11-27 — (b) + (c), [ADR 0054](../../adr/0054-single-writer-deploy-and-standing-production-probe.md):**
+the deploy workflow is the **only** writer (Netlify's Git integration for the site is disconnected), and a
+new `verify-production` job probes the **canonical** URL on **every** push to `main` — not only when the
+run deployed — with the site origin in the repository variable `ASSAY_COLLECTOR_URL` (missing = job
+failure, never a skip). Both `netlify.toml` files keep an **inert** `[build] command` so a future
+reconnect rebuilds the function instead of re-arming the empty-functions trap.
+
+**STILL A HUMAN STEP, and it is in the Netlify UI:** disconnect the Git integration for the site (Site
+configuration → Build & deploy → **stop building on push** / disconnect the repository) and set the
+`ASSAY_COLLECTOR_URL` variable in the GitHub repository settings. **Do not push collector-relevant work to
+`main` before the disconnect**: until it lands, a Git build can still republish production with an empty
+functions directory seconds after the workflow's probe goes green — a coin-flip red or a silently dead
+endpoint, which is exactly the failure this section is about.
 
 ### 2.3 Three docs described the old state (**corrected 2026-11-27**)
 
