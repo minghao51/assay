@@ -73,3 +73,14 @@ validates every event with `@assay/telemetry`'s own descriptor and closed allowl
   single route; kept as the fallback if Netlify's free tier or ergonomics stop fitting.
 - **Fly.io / small VPS** — more control and much more operational surface than one endpoint needs.
 - **Static host (GitHub Pages)** — not viable: no server runtime, nowhere to receive a `POST`.
+
+## Amendment (2026-11-24)
+
+The ingest-token sentence above described the first reference deployment, where
+`ASSAY_TELEMETRY_TOKEN` was sent by the client and **not** checked. It is now
+checked when `ASSAY_TELEMETRY_INGEST_TOKEN` is set on the site: a missing or
+mismatched bearer is refused with a value-free `401` **before the body is read
+or parsed**, compared with `crypto.timingSafeEqual` over fixed-length hashes.
+This is recorded as an amendment rather than a rewrite because the decision did
+not change: the token is a **spam filter, not authentication** — anything shipped
+to a browser is public.
