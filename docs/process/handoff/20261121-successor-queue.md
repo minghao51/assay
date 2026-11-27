@@ -698,6 +698,16 @@ the running service is not yet.
 endpoint-free and inert, and the public [disclosure](../../telemetry-disclosure.md) — unchanged — stays
 accurate: nothing is collected anywhere.
 
+**What the operator sets where (2026-11-25).** Three separate places, deliberately not one: the
+**Netlify site** environment owns the collector's `ASSAY_TELEMETRY_INGEST_TOKEN` (enable the ingest
+token check; unset leaves the endpoint open) and `ASSAY_TELEMETRY_ALLOWED_ORIGINS` (only if a
+cross-origin caller is needed); the **GitHub repository secrets** own `NETLIFY_AUTH_TOKEN` and
+`NETLIFY_SITE_ID` for the deploy workflow and nothing else; the **app build** owns
+`ASSAY_TELEMETRY_ENDPOINT` (the deployed function URL) and the matching `ASSAY_TELEMETRY_TOKEN`,
+which is public in a browser and is a spam filter, not authentication. The placeholders are
+enumerated in [`.env.example`](../../../.env.example); no real value belongs in a committed file.
+Deployment remains unexercised while GitHub Actions is billing-blocked (R-20).
+
 Why a server runtime was needed at all, and the options that were weighed (kept as the record of the
 choice):
 
